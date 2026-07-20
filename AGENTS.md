@@ -32,21 +32,40 @@
 
 Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流程定义。
 
+`harness/generated/workflow-catalog.json` 是从全部 Workflow 生成的路由索引，不是流程事实源。修改 Workflow 后必须执行 `npm run workflow:sync`。
+
 ## Workflow 约束
 
 - `document.dsl` 固定使用当前 SDK 支持的 `1.0.3`。
 - `document.version` 使用语义化版本。
 - 首版只允许自定义 `call` 和 `switch`。
 - 自定义 `call` 必须存在对应的 `skills/<call>/SKILL.md`。
-- 每个 Skill Step 必须绑定至少一个 Check。
+- Skill Step 的业务 `input`、`output` 和 Check 都可以省略。
+- 固定流转且没有 Check 的 Skill Step 正常完成后视为 `passed`，并记录执行证据。
+- Skill Step 的下一节点是 `switch` 时必须绑定至少一个 Check。
+- Check 必须返回 `passed`、`needs_changes` 或 `blocked`，并包含可核对的 `evidence`。
 - 顺序、分支和回改只能通过标准声明顺序、`then` 和 `switch` 表达。
 - Cycle 必须至少存在一条能够到达 Workflow 结束节点的路径。
 - `schedule`、远程调用和事件 Task 当前禁止使用。
 - Agent 每次只加载当前 Step 对应的 Skill、Check 和必要输入。
+- `document.metadata.harness.routing` 声明 Workflow 的 Alias、适用场景和排除场景。
+- `document.metadata.harness.execution.maxStepAttempts` 如存在，必须是正整数。
+- `switch.when` 当前只允许比较 `.status` 与 `passed`、`needs_changes` 或 `blocked`。
+
+## 本地执行
+
+- `skills/workflow-router/SKILL.md` 是 Agent 进入 Workflow 的唯一入口。
+- Router 只读取 Workflow Catalog，并自动调用 `workflow:start`、`workflow:continue` 和必要时的 `workflow:cancel`。
+- Agent 禁止自行解析 YAML 决定 Transition，后续 Step 只能使用 Runtime 返回结果。
+- 一个 Worktree 同时只允许一个 `running` Run。
+- Run 固定 Workflow Version 和 Source Hash；Workflow 运行期间发生变化时禁止继续推进。
+- Step Result 必须匹配 `runId`、`revision` 和当前 `stepId`，并包含非空 `evidence`。
+- `.harness/` 只保存本地运行状态，禁止提交 Git，禁止写入 Secret 和完整 Prompt。
+- 第一版不提供宿主 Hook；Agent 或宿主完全重启后，不承诺主动恢复，重新加载 Router 后可以恢复。
 
 ## Model 和 Schema
 
-- Workflow 输入输出使用 JSON Schema Draft 2020-12。
+- Workflow 和 Step 的业务输入输出可选；需要结构校验时使用 JSON Schema Draft 2020-12。
 - 项目内 Schema URI 使用 `harness://models/<file>.schema.json`。
 - URI 必须解析到当前仓库的 `harness/models/`，不得访问网络或逃逸目录。
 - Open Workflow 标准 Schema 由 `@openworkflowspec/sdk` 提供，禁止复制修改。
@@ -70,6 +89,7 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 - 不得使用 `any` 绕过类型检查。
 - 所有自动检查收口到 `npm run check:all`。
 - `@openworkflowspec/sdk` 当前锁定精确版本，升级必须包含兼容性测试。
+- Check 的确定性命令只允许 Front Matter 中的 `command` 和 `args` 结构，禁止 Shell 字符串。
 
 ## 完成标准
 
@@ -79,7 +99,9 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 npm run check:all
 npm run doctor
 npm run workflow:validate -- harness/workflows/feature-development/workflow.yaml
+npm run workflow:validate -- harness/workflows/node-typescript-development/workflow.yaml
 npm run workflow:image -- harness/workflows/feature-development/workflow.yaml
+npm run workflow:image -- harness/workflows/node-typescript-development/workflow.yaml
 ```
 
 ## 安全和 Git

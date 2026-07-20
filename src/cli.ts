@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { compileWorkflow } from "./workflow/compiler.js";
+import { syncWorkflowCatalog } from "./workflow/catalog.js";
+import {
+  cancelWorkflowRun,
+  continueWorkflowRun,
+  startWorkflowRun,
+  type StepResult,
+} from "./workflow/runtime.js";
 import { renderWorkflowSvg } from "./workflow/svg-renderer.js";
 
 export type CliIo = {
@@ -38,7 +45,13 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function printUsage(io: CliIo): void {
-  io.stderr("用法：harness-next <doctor|validate|diagram|image> [workflow.yaml] [output.svg]");
+  io.stderr(
+    "用法：harness-next <doctor|validate|diagram|image|sync|start|continue|cancel> [...args]",
+  );
+}
+
+async function readJson(path: string): Promise<unknown> {
+  return JSON.parse(await readFile(path, "utf8")) as unknown;
 }
 
 async function doctor(io: CliIo): Promise<number> {
@@ -120,25 +133,121 @@ async function imageCommand(
   return 0;
 }
 
+async function syncCommand(check: boolean, io: CliIo): Promise<number> {
+  try {
+    const result = await syncWorkflowCatalog({ rootDir: io.cwd, check });
+    io.stdout(
+      check
+        ? "Workflow Catalog：已是最新"
+        : result.changed
+          ? "Workflow Catalog：已同步"
+          : "Workflow Catalog：无需更新",
+    );
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+async function startCommand(
+  workflowPath: string,
+  executionKey: string,
+  inputPath: string,
+  io: CliIo,
+): Promise<number> {
+  try {
+    const response = await startWorkflowRun({
+      rootDir: io.cwd,
+      workflowPath,
+      executionKey,
+      input: await readJson(resolve(io.cwd, inputPath)),
+    });
+    io.stdout(JSON.stringify(response));
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+async function continueCommand(
+  runId: string,
+  resultPath: string | undefined,
+  io: CliIo,
+): Promise<number> {
+  try {
+    const result =
+      resultPath === undefined
+        ? undefined
+        : ((await readJson(resolve(io.cwd, resultPath))) as StepResult);
+    const response = await continueWorkflowRun({
+      rootDir: io.cwd,
+      runId,
+      ...(result === undefined ? {} : { result }),
+    });
+    io.stdout(JSON.stringify(response));
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+async function cancelCommand(runId: string, reason: string, io: CliIo): Promise<number> {
+  try {
+    const response = await cancelWorkflowRun({ rootDir: io.cwd, runId, reason });
+    io.stdout(JSON.stringify(response));
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 export async function main(argv: string[], io: CliIo): Promise<number> {
-  const [command, workflowPath, outputPath] = argv;
+  const [command, firstArgument, secondArgument, thirdArgument] = argv;
 
   if (command === "doctor") {
     return doctor(io);
   }
   if (command === "validate" || command === "diagram") {
-    if (workflowPath === undefined) {
+    if (firstArgument === undefined) {
       printUsage(io);
       return 2;
     }
-    return compileCommand(command, workflowPath, io);
+    return compileCommand(command, firstArgument, io);
   }
   if (command === "image") {
-    if (workflowPath === undefined) {
+    if (firstArgument === undefined) {
       printUsage(io);
       return 2;
     }
-    return imageCommand(workflowPath, outputPath, io);
+    return imageCommand(firstArgument, secondArgument, io);
+  }
+  if (command === "sync") {
+    return syncCommand(firstArgument === "--check", io);
+  }
+  if (command === "start") {
+    if (firstArgument === undefined || secondArgument === undefined || thirdArgument === undefined) {
+      printUsage(io);
+      return 2;
+    }
+    return startCommand(firstArgument, secondArgument, thirdArgument, io);
+  }
+  if (command === "continue") {
+    if (firstArgument === undefined) {
+      printUsage(io);
+      return 2;
+    }
+    return continueCommand(firstArgument, secondArgument, io);
+  }
+  if (command === "cancel") {
+    if (firstArgument === undefined || secondArgument === undefined) {
+      printUsage(io);
+      return 2;
+    }
+    return cancelCommand(firstArgument, secondArgument, io);
   }
 
   printUsage(io);

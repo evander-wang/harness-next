@@ -5,6 +5,17 @@ document:
   version: "0.1.0"
   title: 功能开发
   summary: 从需求澄清、审核到实现交付的本地 Agent 工作流。
+  metadata:
+    harness:
+      routing:
+        aliases:
+          - generic-feature-development
+        when:
+          - 用户明确指定通用功能开发 Workflow
+        notWhen:
+          - 已存在更具体的技术栈 Workflow
+      execution:
+        maxStepAttempts: 3
 
 input:
   schema:
@@ -14,10 +25,6 @@ input:
 do:
   - clarify-requirement:
       call: clarify-requirement
-      metadata:
-        harness:
-          checks:
-            - requirement-complete
 
   - review-requirement:
       call: review-requirement
@@ -40,7 +47,14 @@ do:
         harness:
           checks:
             - implementation-complete
-      then: end
+
+  - decide-implementation:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: end
+        - needs-changes:
+            then: implement-change
 
 output:
   schema:

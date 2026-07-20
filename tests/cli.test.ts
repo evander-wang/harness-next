@@ -147,4 +147,79 @@ describe("CLI", () => {
     expect(output).toContain("图片输出路径必须位于当前工作区内。");
     await expect(readFile(join(rootDir, "..", outsideName), "utf8")).rejects.toThrow();
   });
+
+  test("sync 生成 Workflow Catalog", async () => {
+    const rootDir = await createProject();
+    const output: string[] = [];
+
+    const code = await main(["sync"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+    const catalog = JSON.parse(
+      await readFile(join(rootDir, "harness/generated/workflow-catalog.json"), "utf8"),
+    ) as { workflows: Array<{ name: string }> };
+
+    expect(code).toBe(0);
+    expect(output).toEqual(["Workflow Catalog：已同步"]);
+    expect(catalog.workflows.map((workflow) => workflow.name)).toEqual(["cli-example"]);
+  });
+
+  test("start、continue 和 cancel 管理本地 Workflow Run", async () => {
+    const rootDir = await createProject();
+    const inputPath = join(rootDir, "input.json");
+    await writeFile(inputPath, "{}\n");
+    const startOutput: string[] = [];
+
+    const startCode = await main(
+      ["start", "harness/workflows/example/workflow.yaml", "cli-task", "input.json"],
+      {
+        cwd: rootDir,
+        stdout: (message) => startOutput.push(message),
+        stderr: (message) => startOutput.push(message),
+      },
+    );
+    const started = JSON.parse(startOutput[0] ?? "{}") as {
+      runId: string;
+      revision: number;
+      step: { id: string };
+    };
+
+    expect(startCode).toBe(0);
+    expect(started.step.id).toBe("run-example");
+
+    const resultPath = join(rootDir, "result.json");
+    await writeFile(
+      resultPath,
+      `${JSON.stringify({
+        runId: started.runId,
+        revision: started.revision,
+        stepId: started.step.id,
+        status: "blocked",
+        evidence: ["等待外部输入"],
+      })}\n`,
+    );
+    const continueOutput: string[] = [];
+    const continueCode = await main(["continue", started.runId, "result.json"], {
+      cwd: rootDir,
+      stdout: (message) => continueOutput.push(message),
+      stderr: (message) => continueOutput.push(message),
+    });
+    const blocked = JSON.parse(continueOutput[0] ?? "{}") as { status: string };
+
+    expect(continueCode).toBe(0);
+    expect(blocked.status).toBe("blocked");
+
+    const cancelOutput: string[] = [];
+    const cancelCode = await main(["cancel", started.runId, "用户停止"], {
+      cwd: rootDir,
+      stdout: (message) => cancelOutput.push(message),
+      stderr: (message) => cancelOutput.push(message),
+    });
+    const cancelled = JSON.parse(cancelOutput[0] ?? "{}") as { status: string };
+
+    expect(cancelCode).toBe(0);
+    expect(cancelled.status).toBe("cancelled");
+  });
 });

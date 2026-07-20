@@ -2,6 +2,8 @@
 
 项目只要求贡献者理解五个核心关键词。
 
+Workflow Catalog、Router、Runtime 和 Run 是工具内部实现，不是新的流程建模概念。贡献者设计流程时仍然只使用下面五个关键词。
+
 ## Workflow
 
 一个完整流程，对应一个标准 `workflow.yaml`：
@@ -9,9 +11,9 @@
 ```text
 Workflow
 ├── document
-├── input
+├── input（可选）
 ├── do
-└── output
+└── output（可选）
 ```
 
 `document.dsl` 是 Open Workflow DSL 版本，`document.version` 是当前业务流程版本。
@@ -24,10 +26,6 @@ Workflow
 do:
   - clarify-requirement:
       call: clarify-requirement
-      metadata:
-        harness:
-          checks:
-            - requirement-complete
 ```
 
 首版 Step 只有两种形式：
@@ -64,26 +62,35 @@ Skill 只完成当前 Step，不决定后续流程。
 
 ## Check
 
-本地 Agent Step 必须在 `metadata.harness.checks` 中绑定至少一个 Check：
+Check 是可选的验收规则。固定流转的 Skill Step 可以没有 Check；只有 Skill Step 进入 `switch`、需要依据结果分支时，才必须绑定 Check：
 
 ```yaml
 metadata:
   harness:
     checks:
-      - requirement-complete
+      - review-result-valid
 ```
 
 它固定解析到：
 
 ```text
-harness/checks/requirement-complete/CHECK.md
+harness/checks/review-result-valid/CHECK.md
 ```
 
-Check 必须输出明确状态和可核对证据。
+Check 必须输出明确状态和可核对证据：
+
+```yaml
+status: passed | needs_changes | blocked
+evidence:
+  - 可核对的依据
+data: {} # 可选
+```
+
+没有 Check 时，Skill 正常执行完成即视为 `passed`，并由执行 Agent 记录证据。
 
 ## 输入和输出
 
-Workflow 输入输出使用 JSON Schema。项目内 Schema 使用可移植 URI：
+Workflow 和 Step 的业务输入输出都是可选的。需要稳定结构校验时使用 JSON Schema，项目内 Schema 使用可移植 URI：
 
 ```yaml
 input:

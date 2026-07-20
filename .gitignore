@@ -9,4 +9,6 @@ coverage/
 .env
 .env.*
 !.env.example
-harness/generated/
+harness/generated/*
+!harness/generated/workflow-catalog.json
+.harness/

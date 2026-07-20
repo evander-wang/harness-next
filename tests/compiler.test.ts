@@ -127,14 +127,14 @@ do:
     );
   });
 
-  test("本地 Skill Step 必须绑定至少一个 Check", async () => {
+  test("固定流转的 Skill Step 可以没有输入、输出和 Check", async () => {
     const project = await createValidProject();
     await writeFile(
       project.workflowPath,
       `document:
   dsl: "1.0.3"
   namespace: harness-next
-  name: missing-check
+  name: skill-playbook
   version: "0.1.0"
 do:
   - clarify-requirement:
@@ -145,8 +145,42 @@ do:
 
     const result = await compileWorkflow(project);
 
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("进入 switch 前的 Skill Step 必须绑定 Check", async () => {
+    const project = await createValidProject();
+    await writeFile(
+      project.workflowPath,
+      `document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: unchecked-branch
+  version: "0.1.0"
+do:
+  - inspect:
+      call: clarify-requirement
+  - decide:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: finish
+        - default:
+            then: end
+  - finish:
+      call: clarify-requirement
+      then: end
+`,
+    );
+
+    const result = await compileWorkflow(project);
+
     expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("check.required");
+    expect(result.diagnostics).toContainEqual({
+      code: "check.required-before-switch",
+      message: "Step 'inspect' 进入 switch 前必须绑定至少一个 Check。",
+    });
   });
 
   test("拒绝远程调用 Task", async () => {
@@ -267,5 +301,66 @@ do:
 
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("task.unsupported");
+  });
+
+  test("拒绝 Runtime 不支持的 switch 条件", async () => {
+    const project = await createValidProject();
+    await writeFile(
+      project.workflowPath,
+      `document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: unsupported-condition
+  version: "0.1.0"
+do:
+  - inspect:
+      call: clarify-requirement
+      metadata:
+        harness:
+          checks: [requirement-complete]
+  - decide:
+      switch:
+        - high-score:
+            when: .score > 10
+            then: end
+        - default:
+            then: inspect
+`,
+    );
+
+    const result = await compileWorkflow(project);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "switch.unsupported-condition",
+      message: "Step 'decide' 使用了 Runtime 不支持的条件：.score > 10",
+    });
+  });
+
+  test("拒绝非法的最大 Step 尝试次数", async () => {
+    const project = await createValidProject();
+    await writeFile(
+      project.workflowPath,
+      `document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: invalid-attempts
+  version: "0.1.0"
+  metadata:
+    harness:
+      execution:
+        maxStepAttempts: 0
+do:
+  - inspect:
+      call: clarify-requirement
+      then: end
+`,
+    );
+
+    const result = await compileWorkflow(project);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "execution.invalid-max-attempts",
+      message: "document.metadata.harness.execution.maxStepAttempts 必须是正整数。",
+    });
   });
 });

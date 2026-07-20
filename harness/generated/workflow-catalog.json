@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "workflows": [
+    {
+      "name": "feature-development",
+      "namespace": "harness-next",
+      "version": "0.1.0",
+      "title": "功能开发",
+      "summary": "从需求澄清、审核到实现交付的本地 Agent 工作流。",
+      "path": "harness/workflows/feature-development/workflow.yaml",
+      "sourceHash": "sha256:71e3eab7f3db2e32fb8b96a1ae69b822cbf37f9e7f648f2661fc7420b7e7ff55",
+      "routing": {
+        "aliases": [
+          "generic-feature-development"
+        ],
+        "when": [
+          "用户明确指定通用功能开发 Workflow"
+        ],
+        "notWhen": [
+          "已存在更具体的技术栈 Workflow"
+        ]
+      }
+    },
+    {
+      "name": "node-typescript-development",
+      "namespace": "harness-next",
+      "version": "0.1.0",
+      "title": "Node.js TypeScript 开发",
+      "summary": "分析、实现、验证、审查并交付当前工作区的 Node.js TypeScript 变更。",
+      "path": "harness/workflows/node-typescript-development/workflow.yaml",
+      "sourceHash": "sha256:2e303b27f641543bc43a5ecd478876dd24c78ceae85e3ab2f632bb7e89a13683",
+      "routing": {
+        "aliases": [
+          "nodejs-development",
+          "typescript-development"
+        ],
+        "when": [
+          "新增或修改 Node.js TypeScript 功能",
+          "修复 Node.js TypeScript 缺陷",
+          "重构 Node.js TypeScript 代码"
+        ],
+        "notWhen": [
+          "只解释代码而不修改",
+          "只进行代码审查而不修改"
+        ]
+      }
+    }
+  ]
+}

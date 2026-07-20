@@ -59,6 +59,22 @@ async function pathExists(path: string): Promise<boolean> {
 
 function validateHarnessProfile(workflow: Specification.Workflow): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const documentMetadata = asRecord(workflow.document.metadata);
+  const documentHarness = asRecord(documentMetadata?.harness);
+  const execution = asRecord(documentHarness?.execution);
+  const maxStepAttempts = execution?.maxStepAttempts;
+  if (
+    maxStepAttempts !== undefined &&
+    (typeof maxStepAttempts !== "number" ||
+      !Number.isInteger(maxStepAttempts) ||
+      maxStepAttempts <= 0)
+  ) {
+    diagnostics.push({
+      code: "execution.invalid-max-attempts",
+      message: "document.metadata.harness.execution.maxStepAttempts 必须是正整数。",
+    });
+  }
+
   if (asRecord(workflow)?.schedule !== undefined) {
     diagnostics.push({
       code: "workflow.unsupported-feature",
@@ -81,6 +97,22 @@ function validateHarnessProfile(workflow: Specification.Workflow): Diagnostic[] 
         message: `Step '${stepId}' 使用了首版 Harness 尚未支持的 Task 类型。`,
       });
     }
+    if (isSwitch) {
+      for (const branchItem of taskRecord.switch as unknown[]) {
+        const branchEntry = Object.entries(asRecord(branchItem) ?? {})[0];
+        const branch = branchEntry === undefined ? null : asRecord(branchEntry[1]);
+        const condition = branch?.when;
+        if (
+          typeof condition === "string" &&
+          !/^\.status\s*==\s*["'](passed|needs_changes|blocked)["']$/u.test(condition)
+        ) {
+          diagnostics.push({
+            code: "switch.unsupported-condition",
+            message: `Step '${stepId}' 使用了 Runtime 不支持的条件：${condition}`,
+          });
+        }
+      }
+    }
   }
 
   return diagnostics;
@@ -91,14 +123,21 @@ async function validateLocalBindings(
   rootDir: string,
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
+  const taskEntries = workflow.do.map((item) => Object.entries(item)[0]);
+  const tasksById = new Map<string, unknown>();
+  for (const entry of taskEntries) {
+    if (entry !== undefined) {
+      tasksById.set(entry[0], entry[1]);
+    }
+  }
 
-  for (const item of workflow.do) {
-    const entry = Object.entries(item)[0];
+  for (const [index, entry] of taskEntries.entries()) {
     if (entry === undefined) {
       continue;
     }
     const [stepId, task] = entry;
-    const call = asRecord(task)?.call;
+    const taskRecord = asRecord(task);
+    const call = taskRecord?.call;
 
     if (typeof call === "string") {
       if (REMOTE_CALLS.has(call)) {
@@ -118,10 +157,18 @@ async function validateLocalBindings(
       }
 
       const checks = getChecks(task);
-      if (checks.length === 0) {
+      const then = taskRecord?.then;
+      const nextEntry = taskEntries[index + 1];
+      const nextTask =
+        typeof then === "string" && !["continue", "end", "exit"].includes(then)
+          ? tasksById.get(then)
+          : then === undefined || then === "continue"
+            ? nextEntry?.[1]
+            : undefined;
+      if (Array.isArray(asRecord(nextTask)?.switch) && checks.length === 0) {
         diagnostics.push({
-          code: "check.required",
-          message: `Step '${stepId}' 必须绑定至少一个 Check。`,
+          code: "check.required-before-switch",
+          message: `Step '${stepId}' 进入 switch 前必须绑定至少一个 Check。`,
         });
       }
 

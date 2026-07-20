@@ -1,0 +1,85 @@
+document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: node-typescript-development
+  version: "0.1.0"
+  title: Node.js TypeScript 开发
+  summary: 分析、实现、验证、审查并交付当前工作区的 Node.js TypeScript 变更。
+  metadata:
+    harness:
+      routing:
+        aliases:
+          - nodejs-development
+          - typescript-development
+        when:
+          - 新增或修改 Node.js TypeScript 功能
+          - 修复 Node.js TypeScript 缺陷
+          - 重构 Node.js TypeScript 代码
+        notWhen:
+          - 只解释代码而不修改
+          - 只进行代码审查而不修改
+      execution:
+        maxStepAttempts: 3
+
+input:
+  schema:
+    resource:
+      endpoint: harness://models/node-change-request.schema.json
+
+do:
+  - analyze-change:
+      call: analyze-node-change
+      metadata:
+        harness:
+          checks:
+            - change-plan-ready
+
+  - decide-plan:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: implement-change
+        - needs-changes:
+            then: analyze-change
+
+  - implement-change:
+      call: implement-node-change
+
+  - verify-change:
+      call: verify-node-change
+      metadata:
+        harness:
+          checks:
+            - node-quality-gate
+
+  - decide-quality:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: review-change
+        - needs-changes:
+            then: implement-change
+
+  - review-change:
+      call: review-node-change
+      metadata:
+        harness:
+          checks:
+            - change-review-result
+
+  - decide-review:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: deliver-result
+        - needs-changes:
+            then: implement-change
+
+  - deliver-result:
+      call: deliver-node-change
+      then: end
+
+output:
+  schema:
+    resource:
+      endpoint: harness://models/node-change-result.schema.json

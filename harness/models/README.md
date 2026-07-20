@@ -1,6 +1,6 @@
 # Model
 
-本目录保存 Workflow 输入输出使用的 JSON Schema Draft 2020-12 文件。
+本目录保存需要稳定结构校验的 Workflow 或 Step 业务输入输出 JSON Schema Draft 2020-12 文件。没有结构化业务数据时不需要新增 Model。
 
 ```text
 harness/models/<model-name>.schema.json
