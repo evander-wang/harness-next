@@ -1,0 +1,39 @@
+{
+  "name": "harness-next",
+  "version": "0.1.0",
+  "private": true,
+  "description": "面向本地编码 Agent 的声明式 Workflow 编译与校验工具。",
+  "type": "module",
+  "bin": {
+    "harness-next": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "check:all": "npm run lint && npm run typecheck && npm test && npm run build",
+    "doctor": "npm run build --silent && node dist/cli.js doctor",
+    "workflow:validate": "npm run build --silent && node dist/cli.js validate",
+    "workflow:diagram": "npm run build --silent && node dist/cli.js diagram",
+    "workflow:image": "npm run build --silent && node dist/cli.js image"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@openworkflowspec/sdk": "1.0.3-alpha4",
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@types/node": "^24.0.15",
+    "eslint": "^9.31.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  }
+}

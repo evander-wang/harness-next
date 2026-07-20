@@ -1,0 +1,48 @@
+document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: feature-development
+  version: "0.1.0"
+  title: 功能开发
+  summary: 从需求澄清、审核到实现交付的本地 Agent 工作流。
+
+input:
+  schema:
+    resource:
+      endpoint: harness://models/feature-request.schema.json
+
+do:
+  - clarify-requirement:
+      call: clarify-requirement
+      metadata:
+        harness:
+          checks:
+            - requirement-complete
+
+  - review-requirement:
+      call: review-requirement
+      metadata:
+        harness:
+          checks:
+            - review-result-valid
+
+  - decide-review:
+      switch:
+        - passed:
+            when: .status == "passed"
+            then: implement-change
+        - needs-changes:
+            then: clarify-requirement
+
+  - implement-change:
+      call: implement-change
+      metadata:
+        harness:
+          checks:
+            - implementation-complete
+      then: end
+
+output:
+  schema:
+    resource:
+      endpoint: harness://models/feature-result.schema.json

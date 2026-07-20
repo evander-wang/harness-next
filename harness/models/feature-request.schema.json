@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness://models/feature-request.schema.json",
+  "title": "FeatureRequest",
+  "type": "object",
+  "required": ["request"],
+  "properties": {
+    "request": {
+      "type": "string",
+      "minLength": 1,
+      "description": "需要实现或修改的具体需求。"
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "必须遵守的项目约束。"
+    }
+  },
+  "additionalProperties": false
+}
