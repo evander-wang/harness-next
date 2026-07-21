@@ -4,6 +4,7 @@
   "private": true,
   "description": "面向本地编码 Agent 的声明式 Workflow 编译与校验工具。",
   "type": "module",
+  "packageManager": "npm@11.3.0",
   "bin": {
     "harness-next": "./dist/cli.js"
   },
@@ -21,7 +22,8 @@
     "workflow:sync": "npm run build --silent && node dist/cli.js sync",
     "workflow:start": "npm run build --silent && node dist/cli.js start",
     "workflow:continue": "npm run build --silent && node dist/cli.js continue",
-    "workflow:cancel": "npm run build --silent && node dist/cli.js cancel"
+    "workflow:cancel": "npm run build --silent && node dist/cli.js cancel",
+    "project:check": "npm run build --silent && node dist/cli.js project-check"
   },
   "engines": {
     "node": ">=22.0.0",
@@ -31,11 +33,13 @@
     "@dagrejs/dagre": "^3.0.0",
     "@openworkflowspec/sdk": "1.0.3-alpha4",
     "ajv": "^8.17.1",
-    "js-yaml": "5.2.1"
+    "js-yaml": "5.2.1",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
     "@types/node": "^24.0.15",
+    "@types/semver": "^7.7.1",
     "eslint": "^9.31.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",

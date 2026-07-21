@@ -9,7 +9,7 @@
 1. Workflow 完全采用 Open Workflow Specification，不维护第二套流程格式。
 2. 自定义 `call` 映射本地 Skill，`metadata.harness.checks` 绑定本地 Check。
 3. Open Workflow SDK 只作为内部实现依赖，不把 SDK 类型扩散到 CLI 和目录约定。
-4. 所有 Workflow、Skill、Check 和 Model 都从当前工作区读取，不访问远程执行目标。
+4. 所有 Workflow、Skill、Check 和 Model 都从 Harness Root 读取，目标 Workspace 只允许本地目录，不访问远程执行目标。
 
 ## 模块结构
 
@@ -31,6 +31,10 @@ workflow.yaml ──► compileWorkflow() ──► 标准校验、静态图、M
 
 Mermaid 和 SVG Renderer 使用同一个 `FlatGraph`。SVG 使用 Dagre 在本地完成布局，不依赖浏览器或远程渲染服务。
 
+`src/node-project/` 是 Node.js 工程检查的深 Module。它通过 `detectPackageManager(rootDir)` 和 `checkNodeProject()` 两个小 Interface 隐藏根 Lockfile 识别、Node.js 版本一致性、工程基线检查和 npm、Yarn、pnpm 命令差异。Workflow 和 Check 不复制这些规则。
+
+Runtime 区分 Harness Root 和 Workspace Root。Harness Root 保存 Workflow、Skill、Check、Catalog 和 `.harness/runs/`；Workspace Root 是本次 Run 固化的目标项目目录。Check 命令通过 `cwd: harness | workspace` 明确执行位置，`project-check` 从 Harness 运行但检查 Workspace。
+
 ## 校验顺序
 
 1. 解析 YAML 或 JSON。
@@ -51,7 +55,7 @@ Runtime 只支持 `.status == "passed|needs_changes|blocked"` 条件。其他表
 
 Workflow 和 Step 的业务输入输出都是可选的。需要稳定结构校验时遵循 Open Workflow 的 `input.schema`、`output.schema`。项目内外部 Schema 使用 `harness://models/` URI，并固定解析到当前仓库的 `harness/models/`。
 
-这种 URI 不包含机器绝对路径，不访问网络，也不能逃逸到 `harness/models/` 之外。
+这种 URI 不包含机器绝对路径，不访问网络，也不能逃逸到 `harness/models/` 之外。Schema 的 `$ref` 可以引用其他 `harness://models/` 资源或当前文档片段，其他外部 URI 会被拒绝。
 
 ## Step 执行契约
 
@@ -68,7 +72,7 @@ data: {} # 可选业务数据
 
 `switch` 只读取这种明确结果，不解析自由文本来猜测下一步。
 
-确定性 Check 可以在 `CHECK.md` Front Matter 声明 `command` 和 `args`。Runtime 使用 `shell: false` 执行，状态只保存退出码、耗时和输出 Digest。主观 Check 仍由 Agent 判断并提供证据。
+确定性 Check 可以在 `CHECK.md` Front Matter 声明 `command`、`args` 和可选 `cwd: harness | workspace`。Runtime 使用 `shell: false` 执行，状态只保存退出码、耗时和输出 Digest。主观 Check 仍由 Agent 判断并提供证据。
 
 ## 本地运行状态
 
@@ -78,6 +82,7 @@ data: {} # 可选业务数据
 - 重复启动或无结果调用 `continue` 返回 `interrupted`，Router 必须先核对工作区，不能直接重做。
 - Step Result 必须匹配 `runId`、`revision` 和当前 `stepId`。
 - Run 固定 Workflow Version 和 Source Hash，Workflow 改变后拒绝继续。
+- Run 固化 Workspace Root，恢复时不能切换目标项目目录。
 - Step 超过 `maxStepAttempts` 后进入 `blocked`。
 - 到达结束节点时使用 Workflow Output Schema 校验 `data`。
 
@@ -96,6 +101,7 @@ data: {} # 可选业务数据
 - 本地 Run 状态、幂等恢复和中断检测；
 - 确定性 Check 命令；
 - `start / continue / cancel` Runtime。
+- 本地目标 Workspace 中 Node.js TypeScript 项目的 npm、Yarn、pnpm 自适应质量门禁。
 
 首版不支持：
 

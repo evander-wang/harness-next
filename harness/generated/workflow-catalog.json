@@ -22,6 +22,33 @@
       }
     },
     {
+      "name": "node-project-configuration",
+      "namespace": "harness-next",
+      "version": "0.1.0",
+      "title": "Node.js TypeScript 项目配置",
+      "summary": "初始化新的 Node.js TypeScript 项目，或规范化当前已有项目的工程配置。",
+      "path": "harness/workflows/node-project-configuration/workflow.yaml",
+      "sourceHash": "sha256:a006d9fcd15a29fb7b82322c0b6a770f336dd48681d4106049e763e5d4992888",
+      "routing": {
+        "aliases": [
+          "node-project-setup",
+          "node-project-standardization"
+        ],
+        "when": [
+          "初始化新的 Node.js TypeScript 项目",
+          "为已有项目补充 TypeScript、Lint、测试或构建配置",
+          "统一 Node.js 版本、包管理器声明和 Lockfile",
+          "修复项目 scripts、README、Docker 或 CI 配置不一致",
+          "建立或规范化多环境配置和 Secret 管理方式"
+        ],
+        "notWhen": [
+          "开发业务功能或修复业务代码缺陷",
+          "只进行代码解释或代码审查",
+          "只升级某一个普通业务依赖"
+        ]
+      }
+    },
+    {
       "name": "node-typescript-development",
       "namespace": "harness-next",
       "version": "0.1.0",

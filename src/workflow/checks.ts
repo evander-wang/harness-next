@@ -8,6 +8,7 @@ import { load } from "js-yaml";
 export type CheckCommand = {
   command: string;
   args: string[];
+  cwd?: "harness" | "workspace";
 };
 
 export type CheckDefinition = {
@@ -17,6 +18,7 @@ export type CheckDefinition = {
 
 export type CheckCommandExecution = CheckCommand & {
   checkId: string;
+  cwd: "harness" | "workspace";
   exitCode: number;
   durationMs: number;
   outputDigest: string;
@@ -29,6 +31,7 @@ export type LoadCheckDefinitionOptions = {
 
 export type ExecuteDeterministicChecksOptions = {
   rootDir: string;
+  workspaceRoot?: string;
   checkIds: string[];
 };
 
@@ -60,6 +63,7 @@ function parseCommands(value: unknown, checkId: string): CheckCommand[] {
     const record = asRecord(item);
     const command = record?.command;
     const args = record?.args ?? [];
+    const cwd = record?.cwd;
     if (typeof command !== "string" || command.length === 0 || !Array.isArray(args)) {
       throw new Error(`Check '${checkId}' 的 commands 必须使用 command 和 args 结构。`);
     }
@@ -69,7 +73,10 @@ function parseCommands(value: unknown, checkId: string): CheckCommand[] {
       }
       return argument;
     });
-    return { command, args: parsedArgs };
+    if (cwd !== undefined && cwd !== "harness" && cwd !== "workspace") {
+      throw new Error(`Check '${checkId}' 的 cwd 只允许 harness 或 workspace。`);
+    }
+    return { command, args: parsedArgs, ...(cwd === undefined ? {} : { cwd }) };
   });
 }
 
@@ -86,7 +93,8 @@ export async function loadCheckDefinition(
 }
 
 async function executeCommand(
-  rootDir: string,
+  harnessRoot: string,
+  workspaceRoot: string,
   checkId: string,
   definition: CheckCommand,
 ): Promise<CheckCommandExecution> {
@@ -94,10 +102,11 @@ async function executeCommand(
   const outputHash = createHash("sha256");
   outputHash.update("stdout\0");
 
+  const commandCwd = definition.cwd ?? "workspace";
   const exitCode = await new Promise<number>((resolveExit) => {
     const child = spawn(definition.command, definition.args, {
-      cwd: rootDir,
-      env: process.env,
+      cwd: commandCwd === "harness" ? harnessRoot : workspaceRoot,
+      env: { ...process.env, HARNESS_WORKSPACE_ROOT: workspaceRoot },
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -122,6 +131,7 @@ async function executeCommand(
   return {
     checkId,
     ...definition,
+    cwd: commandCwd,
     exitCode,
     durationMs: Date.now() - startedAt,
     outputDigest: `sha256:${outputHash.digest("hex")}`,
@@ -132,11 +142,12 @@ export async function executeDeterministicChecks(
   options: ExecuteDeterministicChecksOptions,
 ): Promise<CheckCommandExecution[]> {
   const rootDir = resolve(options.rootDir);
+  const workspaceRoot = resolve(options.workspaceRoot ?? rootDir);
   const results: CheckCommandExecution[] = [];
   for (const checkId of options.checkIds) {
     const definition = await loadCheckDefinition({ rootDir, checkId });
     for (const command of definition.commands) {
-      results.push(await executeCommand(rootDir, checkId, command));
+      results.push(await executeCommand(rootDir, workspaceRoot, checkId, command));
     }
   }
   return results;

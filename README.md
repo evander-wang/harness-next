@@ -74,6 +74,8 @@ data: {}
 - Cycle 最大尝试次数；
 - Check 结构化命令的本地执行和 Digest 证据；
 - Run 完成时的 Workflow Output Schema 校验。
+- npm、Yarn、pnpm 自动识别和 Node.js TypeScript 工程质量门禁；
+- 工作区内 JSON Schema 通过 `harness://models/` 相互引用。
 
 首版只接受两类 Task：
 
@@ -106,23 +108,64 @@ harness/workflows/node-typescript-development/workflow.yaml
 
 它依次执行分析、实现、质量门禁、Review 和交付；分析、质量或 Review 不通过时返回对应修改 Step。
 
+项目初始化和工程配置使用：
+
+```text
+harness/workflows/node-project-configuration/workflow.yaml
+```
+
+它用于初始化新的 Node.js TypeScript 项目，或规范化已有项目的 Node.js 版本、包管理器、Lockfile、TypeScript、ESLint、测试、构建、README 和 CI。业务功能开发仍由 `node-typescript-development` 处理。
+
+Workflow 自动读取 `package.json#packageManager` 和项目根目录 Lockfile。新项目默认 npm；已有项目保留 npm、Yarn 或 pnpm。多个 Lockfile、声明冲突或无法判断时进入 `blocked`，不会自动删除文件或迁移包管理器。
+
+Workflow Input 使用 `projectRoot` 指定目标项目目录，默认 `.`。Harness 的 Workflow、Skill、Check 和 Run 状态仍从 Harness 根目录加载；目标可以是另一个本地空目录或已有项目，但不能是远程仓库或远程执行目标。
+
 ## 本地开发
 
 要求 Node.js 22 及以上版本。
 
 ```bash
 npm install
+npm run project:check
 npm run check:all
 npm run build
 npm run doctor
 npm run workflow:sync
 npm run workflow:validate -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:validate -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:validate -- harness/workflows/node-project-configuration/workflow.yaml
 npm run workflow:diagram -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:image -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:image -- harness/workflows/node-project-configuration/workflow.yaml
 ```
 
-可运行示例包括 [feature-development/workflow.yaml](./harness/workflows/feature-development/workflow.yaml) 和 [node-typescript-development/workflow.yaml](./harness/workflows/node-typescript-development/workflow.yaml)。
+可运行示例包括 [feature-development/workflow.yaml](./harness/workflows/feature-development/workflow.yaml)、[node-typescript-development/workflow.yaml](./harness/workflows/node-typescript-development/workflow.yaml) 和 [node-project-configuration/workflow.yaml](./harness/workflows/node-project-configuration/workflow.yaml)。
+
+## Node.js 项目质量门禁
+
+`project-check` 是包管理器无关的本地检查入口：
+
+```bash
+npm run project:check
+```
+
+也可以从 Harness 根目录直接检查另一个本地项目：
+
+```bash
+npm run project:check -- ../path/to/project
+```
+
+它先检查 `packageManager`、唯一 Lockfile、`tsconfig.json`、ESLint、README、`.gitignore`、CI、Node.js 版本和标准 scripts，再使用识别出的 npm、Yarn 或 pnpm 依次执行 `typecheck`、`lint`、`test` 和 `build`。完整命令输出不会写入 Run 状态，Runtime 只保存退出码、耗时和 Digest。
+
+项目配置请求示例：
+
+```json
+{
+  "request": "初始化一个 Node.js TypeScript CLI 项目",
+  "projectRoot": "../my-cli",
+  "constraints": []
+}
+```
 
 ## Runtime 调试
 

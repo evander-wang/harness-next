@@ -26,11 +26,15 @@ data: {} # 可选业务数据
 ```yaml
 ---
 commands:
-  - command: npm
-    args: [run, typecheck]
+  - command: node
+    args: [dist/cli.js, project-check]
   - command: git
     args: [diff, --check]
 ---
 ```
 
 禁止写 `npm run lint && npm test` 等 Shell 字符串。Runtime 使用 `shell: false` 执行，只保存退出码、耗时和输出 Digest。
+
+命令默认在目标 Workspace 执行。需要读取 Harness 自身构建产物时声明 `cwd: harness`；需要检查目标项目 Git 状态时声明 `cwd: workspace`。Runtime 会把固化的目标目录通过 `HARNESS_WORKSPACE_ROOT` 提供给 Harness 命令。
+
+共享 Node.js 质量门禁使用 `project-check`，由它根据 `package.json#packageManager` 和唯一根 Lockfile 选择 npm、Yarn 或 pnpm。Check 不复制三套命令。

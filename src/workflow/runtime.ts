@@ -49,6 +49,7 @@ export type WorkflowRuntimeResponse = {
 
 export type StartWorkflowRunOptions = {
   rootDir: string;
+  workspaceRoot?: string;
   workflowPath: string;
   executionKey: string;
   input: unknown;
@@ -456,6 +457,7 @@ async function startWorkflowRunUnlocked(
   options: StartWorkflowRunOptions,
 ): Promise<WorkflowRuntimeResponse> {
   const rootDir = resolve(options.rootDir);
+  const workspaceRoot = resolve(options.workspaceRoot ?? rootDir);
   if (options.executionKey.trim().length === 0) {
     throw new Error("executionKey 不能为空。");
   }
@@ -478,7 +480,8 @@ async function startWorkflowRunUnlocked(
     if (
       sameExecution.workflowPath !== loaded.workflowPath ||
       sameExecution.workflowHash !== loaded.workflowHash ||
-      sameExecution.inputDigest !== inputDigest
+      sameExecution.inputDigest !== inputDigest ||
+      sameExecution.workspaceRoot !== workspaceRoot
     ) {
       throw new Error("executionKey 已绑定到不同的 Workflow 或输入。");
     }
@@ -502,7 +505,7 @@ async function startWorkflowRunUnlocked(
     schemaVersion: 1,
     runId,
     executionKey: options.executionKey,
-    workspaceRoot: rootDir,
+    workspaceRoot,
     workflowPath: loaded.workflowPath,
     workflowName: loaded.workflow.document.name,
     workflowVersion: loaded.workflow.document.version,
@@ -549,7 +552,11 @@ async function continueWorkflowRunUnlocked(
   let effectiveStatus = options.result.status;
   if (effectiveStatus === "passed" && checkIds.length > 0) {
     try {
-      checkExecutions = await executeDeterministicChecks({ rootDir, checkIds });
+      checkExecutions = await executeDeterministicChecks({
+        rootDir,
+        workspaceRoot: state.workspaceRoot,
+        checkIds,
+      });
     } catch (error: unknown) {
       const failedState: WorkflowRunState = {
         ...state,
