@@ -4,6 +4,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { checkNodeProject } from "./node-project/project-check.js";
 import { compileWorkflow } from "./workflow/compiler.js";
 import { syncWorkflowCatalog } from "./workflow/catalog.js";
 import {
@@ -46,12 +47,18 @@ async function exists(path: string): Promise<boolean> {
 
 function printUsage(io: CliIo): void {
   io.stderr(
-    "用法：harness-next <doctor|validate|diagram|image|sync|start|continue|cancel> [...args]",
+    "用法：harness-next <doctor|project-check|validate|diagram|image|sync|start|continue|cancel> [...args]",
   );
 }
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 async function doctor(io: CliIo): Promise<number> {
@@ -72,6 +79,16 @@ async function doctor(io: CliIo): Promise<number> {
     io.stderr(`- 缺失：${path}`);
   }
   return 1;
+}
+
+async function projectCheckCommand(requestedRoot: string | undefined, io: CliIo): Promise<number> {
+  const rootDir = resolve(
+    io.cwd,
+    requestedRoot ?? process.env.HARNESS_WORKSPACE_ROOT ?? ".",
+  );
+  const result = await checkNodeProject({ rootDir });
+  io.stdout(JSON.stringify(result));
+  return result.ok ? 0 : 1;
 }
 
 async function compileCommand(command: "validate" | "diagram", path: string, io: CliIo): Promise<number> {
@@ -157,11 +174,16 @@ async function startCommand(
   io: CliIo,
 ): Promise<number> {
   try {
+    const input = await readJson(resolve(io.cwd, inputPath));
+    const requestedWorkspaceRoot = asRecord(input)?.projectRoot;
     const response = await startWorkflowRun({
       rootDir: io.cwd,
       workflowPath,
       executionKey,
-      input: await readJson(resolve(io.cwd, inputPath)),
+      input,
+      ...(typeof requestedWorkspaceRoot === "string"
+        ? { workspaceRoot: resolve(io.cwd, requestedWorkspaceRoot) }
+        : {}),
     });
     io.stdout(JSON.stringify(response));
     return 0;
@@ -210,6 +232,9 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
 
   if (command === "doctor") {
     return doctor(io);
+  }
+  if (command === "project-check") {
+    return projectCheckCommand(firstArgument, io);
   }
   if (command === "validate" || command === "diagram") {
     if (firstArgument === undefined) {

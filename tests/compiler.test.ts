@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
@@ -37,6 +37,33 @@ do:
 }
 
 describe("compileWorkflow", () => {
+  test("项目配置 Workflow 包含完整执行与回改流程", async () => {
+    const rootDir = resolve(import.meta.dirname, "..");
+    const workflowPath = join(
+      rootDir,
+      "harness/workflows/node-project-configuration/workflow.yaml",
+    );
+
+    const result = await compileWorkflow({ rootDir, workflowPath });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      result.workflow?.do.map((item) => Object.keys(item)[0]),
+    ).toEqual([
+      "analyze-project",
+      "decide-plan",
+      "configure-project",
+      "verify-project",
+      "decide-quality",
+      "review-project",
+      "decide-review",
+      "deliver-project",
+    ]);
+    expect(result.mermaid).toContain("analyze-project");
+    expect(result.mermaid).toContain("deliver-project");
+  });
+
   test("读取标准 Workflow 并生成 Mermaid", async () => {
     const project = await createValidProject();
 

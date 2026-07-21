@@ -4,6 +4,7 @@
 
 ```bash
 npm install
+npm run project:check
 npm run check:all
 npm run doctor
 ```
@@ -23,6 +24,8 @@ npm run doctor
 9. 执行 `npm run workflow:sync` 更新 Catalog。
 10. 执行 `workflow:validate`、`workflow:diagram` 和 `workflow:image` 检查结果。
 
+初始化或规范化 Node.js TypeScript 工程时参考 `node-project-configuration/workflow.yaml`。Input 的 `projectRoot` 指定本地目标目录，默认为当前目录；`project-check` 自动识别 npm、Yarn 或 pnpm。
+
 以 `harness/workflows/feature-development/workflow.yaml` 为最小参考，不要复制一套新的 DSL。
 
 ## 修改位置
@@ -36,6 +39,7 @@ npm run doctor
 | Workflow 路由索引 | 执行 `npm run workflow:sync`，禁止手工修改 Catalog |
 | 本地运行状态和跳转 | `src/workflow/runtime.ts` |
 | Check 命令执行 | `src/workflow/checks.ts` |
+| 包管理器识别和 Node.js 项目门禁 | `src/node-project/` |
 | 标准解析和本地校验 | `src/workflow/compiler.ts` |
 | CLI | `src/cli.ts` |
 
@@ -57,6 +61,8 @@ npm run doctor
 npm run workflow:sync
 npm run workflow:validate -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:validate -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:validate -- harness/workflows/node-project-configuration/workflow.yaml
 npm run workflow:diagram -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:image -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:image -- harness/workflows/node-project-configuration/workflow.yaml
 ```

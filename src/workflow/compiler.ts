@@ -35,6 +35,11 @@ export type ValidateWorkflowDataOptions = {
   data: unknown;
 };
 
+type LoadedDataSchema = {
+  root: AnySchema;
+  referenced: Map<string, AnySchema>;
+};
+
 const REMOTE_CALLS = new Set(["a2a", "asyncapi", "grpc", "http", "mcp", "openapi"]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -247,7 +252,77 @@ function isJsonSchema(value: unknown): value is AnySchema {
   return typeof value === "boolean" || asRecord(value) !== null;
 }
 
-async function loadDataSchema(options: ValidateWorkflowDataOptions): Promise<AnySchema | null> {
+function resolveModelSchemaPath(rootDir: string, endpoint: string): string {
+  if (!endpoint.startsWith("harness://models/")) {
+    throw new Error("外部 Schema 必须使用 harness://models/ URI。");
+  }
+  const resourceEndpoint = endpoint.split("#", 1)[0];
+  if (resourceEndpoint === undefined) {
+    throw new Error("Schema URI 无效。");
+  }
+  const relativePath = resourceEndpoint.slice("harness://".length);
+  const modelsRoot = resolve(rootDir, "harness/models");
+  const schemaPath = resolve(rootDir, "harness", relativePath);
+  if (schemaPath !== modelsRoot && !schemaPath.startsWith(`${modelsRoot}${sep}`)) {
+    throw new Error("Schema URI 超出了 harness/models/ 目录。");
+  }
+  return schemaPath;
+}
+
+async function readModelSchema(rootDir: string, endpoint: string): Promise<AnySchema> {
+  const parsedSchema = JSON.parse(
+    await readFile(resolveModelSchemaPath(rootDir, endpoint), "utf8"),
+  ) as unknown;
+  if (!isJsonSchema(parsedSchema)) {
+    throw new Error("外部 JSON Schema 必须是对象或布尔值。");
+  }
+  return parsedSchema;
+}
+
+function collectSchemaReferences(value: unknown, references: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSchemaReferences(item, references);
+    return;
+  }
+  const record = asRecord(value);
+  if (record === null) return;
+  const reference = record.$ref;
+  if (typeof reference === "string" && !reference.startsWith("#")) {
+    if (!reference.startsWith("harness://models/")) {
+      throw new Error("Schema $ref 只允许使用 harness://models/ URI 或当前文档片段。");
+    }
+    const endpoint = reference.split("#", 1)[0];
+    if (endpoint !== undefined) references.add(endpoint);
+  }
+  for (const child of Object.values(record)) collectSchemaReferences(child, references);
+}
+
+async function loadReferencedSchemas(
+  rootDir: string,
+  rootSchema: AnySchema,
+): Promise<Map<string, AnySchema>> {
+  const schemas = new Map<string, AnySchema>();
+  const pending = new Set<string>();
+  collectSchemaReferences(rootSchema, pending);
+  while (pending.size > 0) {
+    const endpoint = pending.values().next().value;
+    if (endpoint === undefined) break;
+    pending.delete(endpoint);
+    if (schemas.has(endpoint)) continue;
+    const schema = await readModelSchema(rootDir, endpoint);
+    schemas.set(endpoint, schema);
+    const nested = new Set<string>();
+    collectSchemaReferences(schema, nested);
+    for (const reference of nested) {
+      if (!schemas.has(reference)) pending.add(reference);
+    }
+  }
+  return schemas;
+}
+
+async function loadDataSchema(
+  options: ValidateWorkflowDataOptions,
+): Promise<LoadedDataSchema | null> {
   const dataDefinition = asRecord(options.workflow[options.target]);
   const schema = asRecord(dataDefinition?.schema);
   if (schema === null) {
@@ -257,40 +332,38 @@ async function loadDataSchema(options: ValidateWorkflowDataOptions): Promise<Any
     if (!isJsonSchema(schema.document)) {
       throw new Error("内联 JSON Schema 必须是对象或布尔值。");
     }
-    return schema.document;
+    return {
+      root: schema.document,
+      referenced: await loadReferencedSchemas(options.rootDir, schema.document),
+    };
   }
 
   const resource = asRecord(schema.resource);
   const endpoint = resource?.endpoint;
-  if (typeof endpoint !== "string" || !endpoint.startsWith("harness://models/")) {
+  if (typeof endpoint !== "string") {
     throw new Error("外部 Schema 必须使用 harness://models/ URI。");
   }
-
-  const relativePath = endpoint.slice("harness://".length);
-  const modelsRoot = resolve(options.rootDir, "harness/models");
-  const schemaPath = resolve(options.rootDir, "harness", relativePath);
-  if (schemaPath !== modelsRoot && !schemaPath.startsWith(`${modelsRoot}${sep}`)) {
-    throw new Error("Schema URI 超出了 harness/models/ 目录。");
-  }
-
-  const parsedSchema = JSON.parse(await readFile(schemaPath, "utf8")) as unknown;
-  if (!isJsonSchema(parsedSchema)) {
-    throw new Error("外部 JSON Schema 必须是对象或布尔值。");
-  }
-  return parsedSchema;
+  const root = await readModelSchema(options.rootDir, endpoint);
+  return {
+    root,
+    referenced: await loadReferencedSchemas(options.rootDir, root),
+  };
 }
 
 export async function validateWorkflowData(
   options: ValidateWorkflowDataOptions,
 ): Promise<Diagnostic[]> {
   try {
-    const schema = await loadDataSchema(options);
-    if (schema === null) {
+    const loaded = await loadDataSchema(options);
+    if (loaded === null) {
       return [];
     }
 
     const ajv = new Ajv2020({ allErrors: true, strict: true });
-    const validateData = ajv.compile(schema);
+    for (const [endpoint, schema] of loaded.referenced) {
+      ajv.addSchema(schema, endpoint);
+    }
+    const validateData = ajv.compile(loaded.root);
     if (validateData(options.data)) {
       return [];
     }

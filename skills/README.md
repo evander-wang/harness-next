@@ -17,3 +17,9 @@ Skill 不得自行决定或执行后续 Step。
 `skills/workflow-router/SKILL.md` 是唯一 Workflow 入口。它只读取生成的 Catalog，选择一个 Workflow，并自动调用本地 Runtime。
 
 普通 Step Skill 不对用户承诺完整流程，也不得绕过 Runtime 加载后续 Skill。
+
+## Node.js 项目配置
+
+`analyze-node-project`、`configure-node-project`、`verify-node-project`、`review-node-project-configuration` 和 `deliver-node-project-configuration` 共同完成 Input 中 `projectRoot` 指向的本地工程初始化或规范化。新项目使用 `configure-node-project/BASELINE.md` 的版本化默认值。
+
+新项目默认 npm；已有项目保留已确认的 npm、Yarn 或 pnpm。Skill 不自行删除冲突 Lockfile，不迁移模块系统或测试框架，也不在证据和结果中记录 Secret 值。

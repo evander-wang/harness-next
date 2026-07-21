@@ -1,10 +1,10 @@
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { syncWorkflowCatalog } from "../src/workflow/catalog.js";
+import { buildWorkflowCatalog, syncWorkflowCatalog } from "../src/workflow/catalog.js";
 
 async function writeWorkflow(
   rootDir: string,
@@ -45,6 +45,24 @@ do:
 }
 
 describe("syncWorkflowCatalog", () => {
+  test("真实 Catalog 包含项目配置 Workflow 的清晰路由边界", async () => {
+    const rootDir = resolve(import.meta.dirname, "..");
+
+    const catalog = await buildWorkflowCatalog(rootDir);
+    const workflow = catalog.workflows.find(
+      (entry) => entry.name === "node-project-configuration",
+    );
+
+    expect(workflow).toMatchObject({
+      title: "Node.js TypeScript 项目配置",
+      routing: {
+        aliases: ["node-project-setup", "node-project-standardization"],
+      },
+    });
+    expect(workflow?.routing.when).toContain("初始化新的 Node.js TypeScript 项目");
+    expect(workflow?.routing.notWhen).toContain("开发业务功能或修复业务代码缺陷");
+  });
+
   test("扫描 Workflow 并生成稳定排序的 Catalog", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "harness-catalog-"));
     await writeWorkflow(rootDir, "second", {

@@ -89,4 +89,33 @@ commands:
     expect(results[0]).not.toHaveProperty("stdout");
     expect(results[0]).not.toHaveProperty("stderr");
   });
+
+  test("命令可以明确选择目标项目作为工作目录", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "harness-check-root-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "harness-check-workspace-"));
+    await writeFile(join(workspaceRoot, "target.marker"), "workspace\n");
+    await writeCheck(
+      rootDir,
+      "workspace-command",
+      `---
+commands:
+  - command: node
+    args: ["-e", "process.exit(require('node:fs').existsSync('target.marker') ? 0 : 1)"]
+    cwd: workspace
+---
+# Workspace Command
+`,
+    );
+
+    const results = await executeDeterministicChecks({
+      rootDir,
+      workspaceRoot,
+      checkIds: ["workspace-command"],
+    });
+
+    expect(results[0]).toMatchObject({
+      cwd: "workspace",
+      exitCode: 0,
+    });
+  });
 });

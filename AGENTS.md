@@ -57,7 +57,7 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 - `skills/workflow-router/SKILL.md` 是 Agent 进入 Workflow 的唯一入口。
 - Router 只读取 Workflow Catalog，并自动调用 `workflow:start`、`workflow:continue` 和必要时的 `workflow:cancel`。
 - Agent 禁止自行解析 YAML 决定 Transition，后续 Step 只能使用 Runtime 返回结果。
-- 一个 Worktree 同时只允许一个 `running` Run。
+- 一个 Harness Worktree 同时只允许一个 `running` Run；Run 固化目标项目目录。
 - Run 固定 Workflow Version 和 Source Hash；Workflow 运行期间发生变化时禁止继续推进。
 - Step Result 必须匹配 `runId`、`revision` 和当前 `stepId`，并包含非空 `evidence`。
 - `.harness/` 只保存本地运行状态，禁止提交 Git，禁止写入 Secret 和完整 Prompt。
@@ -68,6 +68,7 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 - Workflow 和 Step 的业务输入输出可选；需要结构校验时使用 JSON Schema Draft 2020-12。
 - 项目内 Schema URI 使用 `harness://models/<file>.schema.json`。
 - URI 必须解析到当前仓库的 `harness/models/`，不得访问网络或逃逸目录。
+- Schema 可以通过 `harness://models/` 引用同一工作区内的其他 Model；禁止网络 `$ref`。
 - Open Workflow 标准 Schema 由 `@openworkflowspec/sdk` 提供，禁止复制修改。
 - 输入输出涉及稳定实体结构时，先声明 JSON Schema，再补充必要 UML 文档。
 
@@ -89,7 +90,8 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 - 不得使用 `any` 绕过类型检查。
 - 所有自动检查收口到 `npm run check:all`。
 - `@openworkflowspec/sdk` 当前锁定精确版本，升级必须包含兼容性测试。
-- Check 的确定性命令只允许 Front Matter 中的 `command` 和 `args` 结构，禁止 Shell 字符串。
+- Check 的确定性命令只允许 Front Matter 中的 `command`、`args` 和可选 `cwd: harness | workspace` 结构，禁止 Shell 字符串。
+- Node.js 项目检查统一使用 `project-check` 识别 npm、Yarn 或 pnpm，禁止在共享质量门禁中写死包管理器。
 
 ## 完成标准
 
@@ -97,11 +99,14 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 
 ```bash
 npm run check:all
+npm run project:check
 npm run doctor
 npm run workflow:validate -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:validate -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:validate -- harness/workflows/node-project-configuration/workflow.yaml
 npm run workflow:image -- harness/workflows/feature-development/workflow.yaml
 npm run workflow:image -- harness/workflows/node-typescript-development/workflow.yaml
+npm run workflow:image -- harness/workflows/node-project-configuration/workflow.yaml
 ```
 
 ## 安全和 Git
