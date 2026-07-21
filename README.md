@@ -98,13 +98,45 @@ $workflow-router
 
 Router 只读取 `harness/generated/workflow-catalog.json`，选择一个 Workflow，并自动执行 `workflow:start` 和 `workflow:continue`。用户不需要逐条运行内部命令。
 
-当前 Node.js 开发流程位于：
+### 使用 Node.js TypeScript 工作流
+
+Node.js TypeScript 工作流适用于新增或修改功能、修复缺陷和重构代码。只解释代码或只做 Review 时不会选择该 Workflow。
+
+在 Node.js TypeScript 项目的当前 Worktree 中加载 Router，并直接描述需要完成的变更：
 
 ```text
-harness/workflows/node-typescript-development/workflow.yaml
+$workflow-router
+
+请使用 node-typescript-development 工作流，修复配置加载失败的问题，并补充回归测试。
 ```
 
-它依次执行分析、实现、质量门禁、Review 和交付；分析、质量或 Review 不通过时返回对应修改 Step。
+也可以使用 Alias `nodejs-development` 或 `typescript-development`。没有明确指定名称时，Router 会根据请求内容和 Catalog 中的适用、排除场景选择 Workflow；无法得到唯一候选时会停止并报告，不会自行猜测。
+
+Router 选中 `harness/workflows/node-typescript-development/workflow.yaml` 后，会自动完成以下过程：
+
+| 阶段 | 执行内容 | 未通过时 |
+| --- | --- | --- |
+| 分析 | 阅读相关代码、约束和测试，明确目标、范围、风险及验证方式，不修改代码 | 分析信息不足时重新分析；缺少用户决定、权限或外部条件时停止 |
+| 实现 | 按已通过的分析范围修改代码；行为变化先补失败测试，再完成最小实现 | 进入后续质量门禁 |
+| 质量门禁 | 依次执行 `npm run lint`、`npm run typecheck`、`npm test`、`npm run build` 和 `git diff --check` | 任一命令失败都会返回实现阶段修复 |
+| Review | 基于需求、实际 Diff、测试和命令证据检查正确性、回归、兼容性与范围 | 发现可修复问题时返回实现阶段 |
+| 交付 | 汇总变更、验证证据和剩余风险 | 输出不满足 Schema 时不会完成 Run |
+
+每个 Step 最多尝试 3 次。执行过程中，Agent 每次只加载当前 Step 的 Skill、Check 和必要输入，Transition 完全由 Runtime 返回，用户不需要手工执行 `workflow:start` 或 `workflow:continue`。
+
+Workflow 完成后输出以下结构：
+
+```yaml
+status: done
+summary: 本次变更摘要
+changedFiles:
+  - src/example.ts
+verification:
+  - npm test 通过
+risks: []
+```
+
+一个 Worktree 同时只能有一个 `running` Run。Agent 或宿主重启后，重新加载 `$workflow-router` 可以使用相同的 `executionKey` 恢复；如果 Runtime 返回 `interrupted`，Router 会先核对工作区和已有证据，再决定继续、返工或阻塞。
 
 ## 本地开发
 
