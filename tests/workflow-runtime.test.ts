@@ -172,6 +172,50 @@ describe("Local Workflow Runtime", () => {
     expect(state).not.toHaveProperty("input");
   });
 
+  test("Runtime 将确定性 Check 定向到目标项目目录", async () => {
+    const project = await createRuntimeProject();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "harness-target-project-"));
+    await writeFile(join(workspaceRoot, "target.marker"), "workspace\n");
+    await writeFile(
+      join(project.rootDir, "harness/checks/quality-gate/CHECK.md"),
+      `---
+commands:
+  - command: node
+    args: ["-e", "process.exit(require('node:fs').existsSync('target.marker') ? 0 : 1)"]
+    cwd: workspace
+---
+# Quality Gate
+`,
+    );
+    const inspect = await startWorkflowRun({
+      ...project,
+      workspaceRoot,
+      executionKey: "task-workspace",
+      input: { title: "目标目录" },
+    });
+    const implement = await continueWorkflowRun({
+      rootDir: project.rootDir,
+      runId: inspect.runId,
+      result: resultFor(inspect, "passed"),
+    });
+    const verify = await continueWorkflowRun({
+      rootDir: project.rootDir,
+      runId: implement.runId,
+      result: resultFor(implement, "passed"),
+    });
+    const deliver = await continueWorkflowRun({
+      rootDir: project.rootDir,
+      runId: verify.runId,
+      result: resultFor(verify, "passed"),
+    });
+    const statePath = join(project.rootDir, ".harness/runs", inspect.runId, "state.json");
+    const state = JSON.parse(await readFile(statePath, "utf8")) as Record<string, unknown>;
+
+    expect(deliver.step?.id).toBe("deliver-change");
+    expect(deliver.checkExecutions?.[0]).toMatchObject({ cwd: "workspace", exitCode: 0 });
+    expect(state.workspaceRoot).toBe(workspaceRoot);
+  });
+
   test("start 对 executionKey 幂等，并阻止同 Worktree 的第二个活动 Run", async () => {
     const project = await createRuntimeProject();
     const started = await startWorkflowRun({

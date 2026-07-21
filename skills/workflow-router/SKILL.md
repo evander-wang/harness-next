@@ -20,7 +20,7 @@ description: 从 Workflow Catalog 选择并自动执行当前工作区的本地 
 选中 Workflow 后：
 
 1. 为当前宿主任务确定稳定的 `executionKey`，恢复时必须复用。
-2. 将符合 Workflow Input Schema 的最小输入写到 `.harness/` 临时文件，禁止写入 Secret 和完整 Prompt。
+2. 将符合 Workflow Input Schema 的最小输入写到 `.harness/` 临时文件，禁止写入 Secret 和完整 Prompt。项目配置 Workflow 必须写入明确的 `projectRoot`，默认值为 `.`。
 3. 自动执行 `npm run workflow:start -- <workflow-path> <execution-key> <input-json>`。
 4. 只加载返回的 `step.skillPath`、`step.checkPaths` 和必要输入。
 5. 执行当前 Skill 和需要 Agent 判断的 Check。
@@ -29,6 +29,8 @@ description: 从 Workflow Catalog 选择并自动执行当前工作区的本地 
 8. 返回下一个 Step 时重复第 4-7 步；`completed` 时交付；`blocked`、`failed` 或 `cancelled` 时停止。
 
 Runtime 返回 `interrupted` 时，不得直接重做 Step。先检查工作区现状和已有证据，再提交继续、返工或阻塞结果。
+
+`workflow:start` 会从 Input 的 `projectRoot` 固化目标项目目录。Skill 修改目标项目，Workflow、Skill、Check 和 Run 状态仍从 Harness 根目录加载；禁止在恢复时切换目标目录。
 
 ## 禁止
 

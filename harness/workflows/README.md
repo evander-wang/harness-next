@@ -32,4 +32,12 @@ metadata:
 
 新增或修改 Workflow 后执行 `npm run workflow:sync`。Catalog 只用于路由，禁止手工编辑。
 
-参考 `feature-development/workflow.yaml`。流程图由 CLI 从该文件生成，禁止维护第二份手工流程图。
+参考：
+
+- `feature-development/workflow.yaml`：最小通用流程；
+- `node-typescript-development/workflow.yaml`：已有工程中的业务代码变更；
+- `node-project-configuration/workflow.yaml`：初始化或规范化当前 Node.js TypeScript 项目。
+
+项目配置 Workflow 自动判断新项目或已有项目，但不为两者维护两套流程。Input 的 `projectRoot` 指定本地目标目录并由 Runtime 固化；包管理器冲突需要返回 `blocked`，禁止自动删除 Lockfile。
+
+流程图由 CLI 从 Workflow 生成，禁止维护第二份手工流程图。

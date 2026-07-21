@@ -41,6 +41,42 @@ do:
   return rootDir;
 }
 
+async function createCheckableNodeProject(): Promise<string> {
+  const rootDir = await createProject();
+  await mkdir(join(rootDir, ".github/workflows"), { recursive: true });
+  await writeFile(
+    join(rootDir, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "checkable-project",
+        packageManager: "npm@10.0.0",
+        engines: { node: ">=22.0.0 <23" },
+        scripts: {
+          typecheck: "node -e \"\"",
+          lint: "node -e \"\"",
+          test: "node -e \"\"",
+          build: "node -e \"\"",
+          "check:all": "node -e \"\"",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    join(rootDir, "tsconfig.json"),
+    `${JSON.stringify({ compilerOptions: { strict: true } }, null, 2)}\n`,
+  );
+  await writeFile(join(rootDir, "eslint.config.js"), "export default [];\n");
+  await writeFile(join(rootDir, ".gitignore"), "node_modules\n");
+  await writeFile(join(rootDir, ".nvmrc"), "22\n");
+  await writeFile(
+    join(rootDir, ".github/workflows/ci.yml"),
+    "jobs:\n  check:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n",
+  );
+  return rootDir;
+}
+
 describe("CLI", () => {
   test("validate 校验 Workflow，diagram 输出 Mermaid", async () => {
     const rootDir = await createProject();
@@ -166,6 +202,70 @@ describe("CLI", () => {
     expect(catalog.workflows.map((workflow) => workflow.name)).toEqual(["cli-example"]);
   });
 
+  test("project-check 自动执行当前 npm 项目的质量命令", async () => {
+    const rootDir = await createCheckableNodeProject();
+    const output: string[] = [];
+
+    const code = await main(["project-check"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+    const result = JSON.parse(output.at(-1) ?? "{}") as {
+      ok: boolean;
+      executions: Array<{ script: string; exitCode: number }>;
+    };
+
+    expect(code).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.executions).toEqual([
+      expect.objectContaining({ script: "typecheck", exitCode: 0 }),
+      expect.objectContaining({ script: "lint", exitCode: 0 }),
+      expect.objectContaining({ script: "test", exitCode: 0 }),
+      expect.objectContaining({ script: "build", exitCode: 0 }),
+    ]);
+  });
+
+  test("project-check 在项目配置缺失时返回结构化问题", async () => {
+    const rootDir = await createCheckableNodeProject();
+    const packageJson = JSON.parse(
+      await readFile(join(rootDir, "package.json"), "utf8"),
+    ) as { scripts: Record<string, string> };
+    delete packageJson.scripts.build;
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
+    const output: string[] = [];
+
+    const code = await main(["project-check"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+    const result = JSON.parse(output.at(-1) ?? "{}") as {
+      ok: boolean;
+      issues: Array<{ code: string }>;
+    };
+
+    expect(code).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "script.missing" }));
+  });
+
+  test("project-check 可以从 Harness 目录检查另一个目标项目", async () => {
+    const harnessRoot = await createProject();
+    const projectRoot = await createCheckableNodeProject();
+    const output: string[] = [];
+
+    const code = await main(["project-check", projectRoot], {
+      cwd: harnessRoot,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+    const result = JSON.parse(output.at(-1) ?? "{}") as { ok: boolean };
+
+    expect(code).toBe(0);
+    expect(result.ok).toBe(true);
+  });
+
   test("start、continue 和 cancel 管理本地 Workflow Run", async () => {
     const rootDir = await createProject();
     const inputPath = join(rootDir, "input.json");
@@ -221,5 +321,31 @@ describe("CLI", () => {
 
     expect(cancelCode).toBe(0);
     expect(cancelled.status).toBe("cancelled");
+  });
+
+  test("start 从 Workflow Input 固化目标项目目录", async () => {
+    const rootDir = await createProject();
+    const projectRoot = await mkdtemp(join(tmpdir(), "harness-cli-target-"));
+    await writeFile(
+      join(rootDir, "input.json"),
+      `${JSON.stringify({ projectRoot })}\n`,
+    );
+    const output: string[] = [];
+
+    const code = await main(
+      ["start", "harness/workflows/example/workflow.yaml", "target-task", "input.json"],
+      {
+        cwd: rootDir,
+        stdout: (message) => output.push(message),
+        stderr: (message) => output.push(message),
+      },
+    );
+    const started = JSON.parse(output[0] ?? "{}") as { runId: string };
+    const state = JSON.parse(
+      await readFile(join(rootDir, ".harness/runs", started.runId, "state.json"), "utf8"),
+    ) as { workspaceRoot: string };
+
+    expect(code).toBe(0);
+    expect(state.workspaceRoot).toBe(projectRoot);
   });
 });
