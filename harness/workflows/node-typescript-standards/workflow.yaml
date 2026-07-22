@@ -1,0 +1,16 @@
+document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: node-typescript-standards
+  version: "1.0.0"
+  title: Node.js TypeScript 开发规范
+  summary: 在 Node.js TypeScript 开发前将完整规范加载到当前 Agent 上下文。
+  metadata:
+    harness:
+      execution:
+        maxStepAttempts: 1
+
+do:
+  - load-node-typescript-standards:
+      call: load-node-typescript-standards
+      then: end

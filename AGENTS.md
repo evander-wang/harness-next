@@ -32,7 +32,7 @@
 
 Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流程定义。
 
-`harness/generated/workflow-catalog.json` 是从全部 Workflow 生成的路由索引，不是流程事实源。修改 Workflow 后必须执行 `npm run workflow:sync`。
+`harness/generated/workflow-catalog.json` 是路由索引，不是流程事实源。`npm run workflow:sync` 会由全部 Workflow 覆盖生成它；`npm run workflow:activate` 则读取人工维护的 `harness/workflow-activation.yaml`，只写入指定入口及其前置依赖。修改已激活 Workflow 或激活声明后必须执行 `npm run workflow:activate`。
 
 ## Workflow 约束
 
@@ -55,7 +55,7 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 ## 本地执行
 
 - `skills/workflow-router/SKILL.md` 是 Agent 进入 Workflow 的唯一入口。
-- Router 只读取 Workflow Catalog，并自动调用 `workflow:start`、`workflow:continue` 和必要时的 `workflow:cancel`。
+- Router 只读取 Workflow Catalog 的 `entryWorkflows` 路由入口，并自动调用 `workflow:start`、`workflow:continue` 和必要时的 `workflow:cancel`。
 - Agent 禁止自行解析 YAML 决定 Transition，后续 Step 只能使用 Runtime 返回结果。
 - 一个 Harness Worktree 同时只允许一个 `running` Run；Run 固化目标项目目录。
 - Run 固定 Workflow Version 和 Source Hash；Workflow 运行期间发生变化时禁止继续推进。
@@ -101,10 +101,11 @@ Mermaid 和其他生成内容只用于展示，禁止手工维护为第二份流
 npm run check:all
 npm run project:check
 npm run doctor
-npm run workflow:validate -- harness/workflows/feature-development/workflow.yaml
+npm run workflow:activate
+npm run workflow:validate -- harness/workflows/node-typescript-standards/workflow.yaml
 npm run workflow:validate -- harness/workflows/node-typescript-development/workflow.yaml
 npm run workflow:validate -- harness/workflows/node-project-configuration/workflow.yaml
-npm run workflow:image -- harness/workflows/feature-development/workflow.yaml
+npm run workflow:image -- harness/workflows/node-typescript-standards/workflow.yaml
 npm run workflow:image -- harness/workflows/node-typescript-development/workflow.yaml
 npm run workflow:image -- harness/workflows/node-project-configuration/workflow.yaml
 ```

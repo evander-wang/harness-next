@@ -8,27 +8,27 @@ import { compileWorkflow } from "../src/workflow/compiler.js";
 
 async function createValidProject(): Promise<{ rootDir: string; workflowPath: string }> {
   const rootDir = await mkdtemp(join(tmpdir(), "harness-next-"));
-  const workflowPath = join(rootDir, "harness/workflows/feature-development/workflow.yaml");
+  const workflowPath = join(rootDir, "harness/workflows/example-workflow/workflow.yaml");
 
-  await mkdir(join(rootDir, "harness/workflows/feature-development"), { recursive: true });
-  await mkdir(join(rootDir, "harness/checks/requirement-complete"), { recursive: true });
-  await mkdir(join(rootDir, "skills/clarify-requirement"), { recursive: true });
-  await writeFile(join(rootDir, "harness/checks/requirement-complete/CHECK.md"), "# 验收\n");
-  await writeFile(join(rootDir, "skills/clarify-requirement/SKILL.md"), "# 澄清需求\n");
+  await mkdir(join(rootDir, "harness/workflows/example-workflow"), { recursive: true });
+  await mkdir(join(rootDir, "harness/checks/example-check"), { recursive: true });
+  await mkdir(join(rootDir, "skills/run-example"), { recursive: true });
+  await writeFile(join(rootDir, "harness/checks/example-check/CHECK.md"), "# 验收\n");
+  await writeFile(join(rootDir, "skills/run-example/SKILL.md"), "# 执行示例\n");
   await writeFile(
     workflowPath,
     `document:
   dsl: "1.0.3"
   namespace: harness-next
-  name: feature-development
+  name: example-workflow
   version: "0.1.0"
 do:
-  - clarify-requirement:
-      call: clarify-requirement
+  - run-example:
+      call: run-example
       metadata:
         harness:
           checks:
-            - requirement-complete
+            - example-check
       then: end
 `,
   );
@@ -71,13 +71,13 @@ describe("compileWorkflow", () => {
 
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
-    expect(result.mermaid).toContain("clarify-requirement");
+    expect(result.mermaid).toContain("run-example");
   });
 
   test("报告不存在的 Skill 和 Check", async () => {
     const project = await createValidProject();
-    await unlink(join(project.rootDir, "skills/clarify-requirement/SKILL.md"));
-    await unlink(join(project.rootDir, "harness/checks/requirement-complete/CHECK.md"));
+    await unlink(join(project.rootDir, "skills/run-example/SKILL.md"));
+    await unlink(join(project.rootDir, "harness/checks/example-check/CHECK.md"));
 
     const result = await compileWorkflow(project);
 
@@ -99,16 +99,16 @@ describe("compileWorkflow", () => {
   version: "0.1.0"
 do:
   - start:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: end
   - never-runs:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
 `,
     );
 
@@ -132,16 +132,16 @@ do:
   version: "0.1.0"
 do:
   - revise:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: review
   - review:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: revise
 `,
     );
@@ -164,8 +164,8 @@ do:
   name: skill-playbook
   version: "0.1.0"
 do:
-  - clarify-requirement:
-      call: clarify-requirement
+  - run-example:
+      call: run-example
       then: end
 `,
     );
@@ -187,7 +187,7 @@ do:
   version: "0.1.0"
 do:
   - inspect:
-      call: clarify-requirement
+      call: run-example
   - decide:
       switch:
         - passed:
@@ -196,7 +196,7 @@ do:
         - default:
             then: end
   - finish:
-      call: clarify-requirement
+      call: run-example
       then: end
 `,
     );
@@ -246,10 +246,10 @@ do:
   version: "0.1.0"
 do:
   - prepare:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
   - decide:
       switch:
         - passed:
@@ -258,16 +258,16 @@ do:
         - needs-changes:
             then: revise
   - revise:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: decide
   - finish:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: end
 `,
     );
@@ -291,10 +291,10 @@ schedule:
   cron: 0 0 * * *
 do:
   - run:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
       then: end
 `,
     );
@@ -341,10 +341,10 @@ do:
   version: "0.1.0"
 do:
   - inspect:
-      call: clarify-requirement
+      call: run-example
       metadata:
         harness:
-          checks: [requirement-complete]
+          checks: [example-check]
   - decide:
       switch:
         - high-score:
@@ -378,7 +378,7 @@ do:
         maxStepAttempts: 0
 do:
   - inspect:
-      call: clarify-requirement
+      call: run-example
       then: end
 `,
     );

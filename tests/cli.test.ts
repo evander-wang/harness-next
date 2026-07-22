@@ -77,7 +77,112 @@ async function createCheckableNodeProject(): Promise<string> {
   return rootDir;
 }
 
+async function writeNodeTypeScriptPolicy(rootDir: string): Promise<void> {
+  await mkdir(join(rootDir, "harness", "workflows", "node-typescript-standards"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(rootDir, "harness", "workflows", "node-typescript-standards", "STANDARDS.md"),
+    `---
+version: "1.0.0"
+scope:
+  includeDirectories: [src]
+  excludeDirectories: [node_modules, dist]
+limits:
+  maxLineLength: 120
+  maxFunctionLines: 80
+  maxFileLines: 600
+  maxCyclomaticComplexity: 10
+---
+
+# Node.js TypeScript 开发规范
+`,
+    "utf8",
+  );
+}
+
+async function addWorkflowWithPrerequisite(rootDir: string): Promise<void> {
+  await mkdir(join(rootDir, "harness/workflows/standards"), { recursive: true });
+  await mkdir(join(rootDir, "harness/workflows/development"), { recursive: true });
+  await mkdir(join(rootDir, "skills/load-standards"), { recursive: true });
+  await writeFile(join(rootDir, "skills/load-standards/SKILL.md"), "# Load standards\n");
+  await writeFile(
+    join(rootDir, "harness/workflows/standards/workflow.yaml"),
+    `document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: standards
+  version: "1.0.0"
+  title: 开发规范
+do:
+  - load-standards:
+      call: load-standards
+      then: end
+`,
+  );
+  await writeFile(
+    join(rootDir, "harness/workflows/development/workflow.yaml"),
+    `document:
+  dsl: "1.0.3"
+  namespace: harness-next
+  name: development
+  version: "1.0.0"
+  title: 业务开发
+  metadata:
+    harness:
+      prerequisites: [standards]
+do:
+  - run-example:
+      call: run-example
+      then: end
+`,
+  );
+}
+
+async function writeActivation(rootDir: string, entryWorkflowPaths: readonly string[]): Promise<void> {
+  await writeFile(
+    join(rootDir, "harness/workflow-activation.yaml"),
+    `version: 1
+entryWorkflowPaths:\n${entryWorkflowPaths.map((path) => `  - ${path}`).join("\n")}\n`,
+  );
+}
+
 describe("CLI", () => {
+  test("node-policy-check 输出 Node.js TypeScript 规范违规", async () => {
+    const rootDir = await createProject();
+    await writeNodeTypeScriptPolicy(rootDir);
+    await mkdir(join(rootDir, "src"), { recursive: true });
+    await writeFile(join(rootDir, "src", "too-wide.ts"), `const value = "${"x".repeat(121)}";\n`);
+    const output: string[] = [];
+
+    const code = await main(["node-policy-check"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+
+    expect(code).toBe(1);
+    expect(JSON.parse(output.at(-1) ?? "{}")).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: "source.line-too-long" })],
+    });
+  });
+
+  test("node-policy-check --changed 在非 Git 目录返回失败码", async () => {
+    const rootDir = await createProject();
+    await writeNodeTypeScriptPolicy(rootDir);
+    const output: string[] = [];
+
+    const code = await main(["node-policy-check", "--changed"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+
+    expect(code).toBe(1);
+    expect(output).toContain("无法读取 Git 变更列表。");
+  });
+
   test("validate 校验 Workflow，diagram 输出 Mermaid", async () => {
     const rootDir = await createProject();
     const output: string[] = [];
@@ -100,6 +205,26 @@ describe("CLI", () => {
     expect(diagramCode).toBe(0);
     expect(output).toContain("Workflow：通过");
     expect(output.some((message) => message.includes("flowchart"))).toBe(true);
+  });
+
+  test("diagram 展开前置 Workflow", async () => {
+    const rootDir = await createProject();
+    await addWorkflowWithPrerequisite(rootDir);
+    const output: string[] = [];
+
+    const code = await main(
+      ["diagram", "harness/workflows/development/workflow.yaml", "--expand-prerequisites"],
+      {
+        cwd: rootDir,
+        stdout: (message) => output.push(message),
+        stderr: (message) => output.push(message),
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(output.at(-1)).toContain("load-standards");
+    expect(output.at(-1)).toContain("prerequisite");
+    expect(output.at(-1)).toContain("run-example");
   });
 
   test("doctor 检查必要目录", async () => {
@@ -165,6 +290,26 @@ describe("CLI", () => {
     expect(svg).toContain("cli-example");
   });
 
+  test("image 展开前置 Workflow 并生成独立 SVG", async () => {
+    const rootDir = await createProject();
+    await addWorkflowWithPrerequisite(rootDir);
+
+    const code = await main(
+      ["image", "harness/workflows/development/workflow.yaml", "--expand-prerequisites"],
+      {
+        cwd: rootDir,
+        stdout: () => undefined,
+        stderr: () => undefined,
+      },
+    );
+    const svg = await readFile(join(rootDir, "harness/generated/development-expanded.svg"), "utf8");
+
+    expect(code).toBe(0);
+    expect(svg).toContain("load-standards");
+    expect(svg).toContain("prerequisite");
+    expect(svg).toContain("run-example");
+  });
+
   test("image 拒绝写入当前工作区之外", async () => {
     const rootDir = await createProject();
     const outsideName = `${basename(rootDir)}-outside.svg`;
@@ -200,6 +345,44 @@ describe("CLI", () => {
     expect(code).toBe(0);
     expect(output).toEqual(["Workflow Catalog：已同步"]);
     expect(catalog.workflows.map((workflow) => workflow.name)).toEqual(["cli-example"]);
+  });
+
+  test("activate 从人工维护的声明文件生成 Workflow Catalog", async () => {
+    const rootDir = await createProject();
+    await writeActivation(rootDir, ["harness/workflows/example/workflow.yaml"]);
+    const output: string[] = [];
+
+    const code = await main(["activate"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+    const catalog = JSON.parse(
+      await readFile(join(rootDir, "harness/generated/workflow-catalog.json"), "utf8"),
+    ) as { mode: string; entryWorkflows: string[] };
+
+    expect(code).toBe(0);
+    expect(output).toEqual(["Workflow Catalog：已激活"]);
+    expect(catalog).toMatchObject({ mode: "selected", entryWorkflows: ["cli-example"] });
+  });
+
+  test("activate --check 识别当前全量 Catalog", async () => {
+    const rootDir = await createProject();
+    await main(["sync"], {
+      cwd: rootDir,
+      stdout: () => undefined,
+      stderr: () => undefined,
+    });
+    const output: string[] = [];
+
+    const code = await main(["activate", "--check"], {
+      cwd: rootDir,
+      stdout: (message) => output.push(message),
+      stderr: (message) => output.push(message),
+    });
+
+    expect(code).toBe(0);
+    expect(output).toEqual(["Workflow Catalog：激活范围已是最新"]);
   });
 
   test("project-check 自动执行当前 npm 项目的质量命令", async () => {

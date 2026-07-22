@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { execFile } from "node:child_process";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { checkNodeProject } from "./node-project/project-check.js";
+import { checkNodeTypeScriptPolicy } from "./node-project/node-typescript-policy.js";
 import { compileWorkflow } from "./workflow/compiler.js";
-import { syncWorkflowCatalog } from "./workflow/catalog.js";
+import {
+  activateWorkflowCatalog,
+  checkWorkflowCatalog,
+  syncWorkflowCatalog,
+} from "./workflow/catalog.js";
+import { expandWorkflowPrerequisites } from "./workflow/expanded-graph.js";
 import {
   cancelWorkflowRun,
   continueWorkflowRun,
@@ -47,7 +54,8 @@ async function exists(path: string): Promise<boolean> {
 
 function printUsage(io: CliIo): void {
   io.stderr(
-    "用法：harness-next <doctor|project-check|validate|diagram|image|sync|start|continue|cancel> [...args]",
+    "用法：harness-next " +
+      "<doctor|project-check|node-policy-check|validate|diagram|image|sync|activate|start|continue|cancel> [...args]",
   );
 }
 
@@ -91,6 +99,55 @@ async function projectCheckCommand(requestedRoot: string | undefined, io: CliIo)
   return result.ok ? 0 : 1;
 }
 
+async function changedFiles(rootDir: string): Promise<string[]> {
+  const output = await new Promise<string>((resolveOutput, reject) => {
+    execFile(
+      "git",
+      ["status", "--porcelain=v1", "-z"],
+      { cwd: rootDir, encoding: "utf8" },
+      (error, stdout) => {
+        if (error !== null) {
+          reject(
+            error instanceof Error ? error : new Error("无法读取 Git 变更列表。", { cause: error }),
+          );
+          return;
+        }
+        resolveOutput(stdout);
+      },
+    );
+  });
+  return output
+    .split("\u0000")
+    .filter((entry) => entry.length > 3 && entry[2] === " ")
+    .map((entry) => entry.slice(3));
+}
+
+async function nodePolicyCheckCommand(
+  firstArgument: string | undefined,
+  secondArgument: string | undefined,
+  io: CliIo,
+): Promise<number> {
+  try {
+    const changedOnly = firstArgument === "--changed";
+    const requestedRoot = changedOnly ? secondArgument : firstArgument;
+    const rootDir = resolve(io.cwd, requestedRoot ?? process.env.HARNESS_WORKSPACE_ROOT ?? ".");
+    const sourcePaths = changedOnly ? await changedFiles(rootDir) : undefined;
+    const result = await checkNodeTypeScriptPolicy({
+      rootDir,
+      standardsPath: join(
+        resolve(io.cwd),
+        "harness/workflows/node-typescript-standards/STANDARDS.md",
+      ),
+      ...(sourcePaths === undefined ? {} : { sourcePaths }),
+    });
+    io.stdout(JSON.stringify(result));
+    return result.ok ? 0 : 1;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? "无法读取 Git 变更列表。" : "Node.js TypeScript 规范检查失败。");
+    return 1;
+  }
+}
+
 async function compileCommand(command: "validate" | "diagram", path: string, io: CliIo): Promise<number> {
   const result = await compileWorkflow({
     rootDir: io.cwd,
@@ -112,6 +169,27 @@ async function compileCommand(command: "validate" | "diagram", path: string, io:
   return 0;
 }
 
+async function diagramCommand(
+  workflowPath: string,
+  expandPrerequisites: boolean,
+  io: CliIo,
+): Promise<number> {
+  if (!expandPrerequisites) {
+    return compileCommand("diagram", workflowPath, io);
+  }
+  try {
+    const expanded = await expandWorkflowPrerequisites({
+      rootDir: io.cwd,
+      workflowPath: resolve(io.cwd, workflowPath),
+    });
+    io.stdout(expanded.mermaid);
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 function isInsideWorkspace(rootDir: string, path: string): boolean {
   return path === rootDir || path.startsWith(`${rootDir}${sep}`);
 }
@@ -119,21 +197,40 @@ function isInsideWorkspace(rootDir: string, path: string): boolean {
 async function imageCommand(
   workflowPath: string,
   requestedOutputPath: string | undefined,
+  expandPrerequisites: boolean,
   io: CliIo,
 ): Promise<number> {
-  const result = await compileWorkflow({
-    rootDir: io.cwd,
-    workflowPath: resolve(io.cwd, workflowPath),
-  });
-  if (!result.ok || result.graph === null || result.workflow === null) {
-    for (const diagnostic of result.diagnostics) {
-      io.stderr(`[${diagnostic.code}] ${diagnostic.message}`);
+  let graph;
+  let workflowName;
+  let title;
+  if (expandPrerequisites) {
+    try {
+      const expanded = await expandWorkflowPrerequisites({
+        rootDir: io.cwd,
+        workflowPath: resolve(io.cwd, workflowPath),
+      });
+      graph = expanded.graph;
+      workflowName = `${expanded.workflowName}-expanded`;
+      title = expanded.title;
+    } catch (error: unknown) {
+      io.stderr(error instanceof Error ? error.message : String(error));
+      return 1;
     }
-    return 1;
+  } else {
+    const result = await compileWorkflow({
+      rootDir: io.cwd,
+      workflowPath: resolve(io.cwd, workflowPath),
+    });
+    if (!result.ok || result.graph === null || result.workflow === null) {
+      for (const diagnostic of result.diagnostics) {
+        io.stderr(`[${diagnostic.code}] ${diagnostic.message}`);
+      }
+      return 1;
+    }
+    graph = result.graph;
+    workflowName = result.workflow.document.name;
+    title = result.workflow.document.title ?? workflowName;
   }
-
-  const workflowName = result.workflow.document.name;
-  const title = result.workflow.document.title ?? workflowName;
   const rootDir = resolve(io.cwd);
   const outputPath = resolve(
     rootDir,
@@ -145,7 +242,7 @@ async function imageCommand(
   }
 
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, renderWorkflowSvg(result.graph, title), "utf8");
+  await writeFile(outputPath, renderWorkflowSvg(graph, title), "utf8");
   io.stdout(`图片已生成：${relative(rootDir, outputPath)}`);
   return 0;
 }
@@ -158,6 +255,25 @@ async function syncCommand(check: boolean, io: CliIo): Promise<number> {
         ? "Workflow Catalog：已是最新"
         : result.changed
           ? "Workflow Catalog：已同步"
+          : "Workflow Catalog：无需更新",
+    );
+    return 0;
+  } catch (error: unknown) {
+    io.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+async function activateCommand(check: boolean, io: CliIo): Promise<number> {
+  try {
+    const result = check
+      ? await checkWorkflowCatalog({ rootDir: io.cwd })
+      : await activateWorkflowCatalog({ rootDir: io.cwd });
+    io.stdout(
+      check
+        ? "Workflow Catalog：激活范围已是最新"
+        : result.changed
+          ? "Workflow Catalog：已激活"
           : "Workflow Catalog：无需更新",
     );
     return 0;
@@ -227,56 +343,50 @@ async function cancelCommand(runId: string, reason: string, io: CliIo): Promise<
   }
 }
 
-export async function main(argv: string[], io: CliIo): Promise<number> {
-  const [command, firstArgument, secondArgument, thirdArgument] = argv;
-
-  if (command === "doctor") {
-    return doctor(io);
-  }
-  if (command === "project-check") {
-    return projectCheckCommand(firstArgument, io);
-  }
-  if (command === "validate" || command === "diagram") {
-    if (firstArgument === undefined) {
-      printUsage(io);
-      return 2;
-    }
-    return compileCommand(command, firstArgument, io);
-  }
-  if (command === "image") {
-    if (firstArgument === undefined) {
-      printUsage(io);
-      return 2;
-    }
-    return imageCommand(firstArgument, secondArgument, io);
-  }
-  if (command === "sync") {
-    return syncCommand(firstArgument === "--check", io);
-  }
-  if (command === "start") {
-    if (firstArgument === undefined || secondArgument === undefined || thirdArgument === undefined) {
-      printUsage(io);
-      return 2;
-    }
-    return startCommand(firstArgument, secondArgument, thirdArgument, io);
-  }
-  if (command === "continue") {
-    if (firstArgument === undefined) {
-      printUsage(io);
-      return 2;
-    }
-    return continueCommand(firstArgument, secondArgument, io);
-  }
-  if (command === "cancel") {
-    if (firstArgument === undefined || secondArgument === undefined) {
-      printUsage(io);
-      return 2;
-    }
-    return cancelCommand(firstArgument, secondArgument, io);
-  }
-
+function missingArguments(io: CliIo): number {
   printUsage(io);
   return 2;
+}
+
+type CommandHandler = (args: string[], io: CliIo) => Promise<number> | number;
+
+const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
+  doctor: (_args, io) => doctor(io),
+  "project-check": ([requestedRoot], io) => projectCheckCommand(requestedRoot, io),
+  "node-policy-check": ([firstArgument, secondArgument], io) =>
+    nodePolicyCheckCommand(firstArgument, secondArgument, io),
+  validate: ([path], io) =>
+    path === undefined ? missingArguments(io) : compileCommand("validate", path, io),
+  diagram: ([path, ...options], io) =>
+    path === undefined
+      ? missingArguments(io)
+      : diagramCommand(path, options.includes("--expand-prerequisites"), io),
+  image: ([path, ...options], io) => {
+    if (path === undefined) {
+      return missingArguments(io);
+    }
+    const expandPrerequisites = options.includes("--expand-prerequisites");
+    const outputPath = options.find((option) => option !== "--expand-prerequisites");
+    return imageCommand(path, outputPath, expandPrerequisites, io);
+  },
+  sync: ([option], io) => syncCommand(option === "--check", io),
+  activate: ([option], io) => activateCommand(option === "--check", io),
+  start: ([workflowPath, executionKey, inputPath], io) =>
+    workflowPath === undefined || executionKey === undefined || inputPath === undefined
+      ? missingArguments(io)
+      : startCommand(workflowPath, executionKey, inputPath, io),
+  continue: ([runId, resultPath], io) =>
+    runId === undefined ? missingArguments(io) : continueCommand(runId, resultPath, io),
+  cancel: ([runId, reason], io) =>
+    runId === undefined || reason === undefined
+      ? missingArguments(io)
+      : cancelCommand(runId, reason, io),
+};
+
+export async function main(argv: string[], io: CliIo): Promise<number> {
+  const [command, ...args] = argv;
+  const handler = command === undefined ? undefined : COMMAND_HANDLERS[command];
+  return handler === undefined ? missingArguments(io) : handler(args, io);
 }
 
 const entryPath = process.argv[1];

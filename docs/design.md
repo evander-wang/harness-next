@@ -16,7 +16,8 @@
 ```text
 workflow.yaml ──► compileWorkflow() ──► 标准校验、静态图、Mermaid
       │
-      ├──► workflow:sync ──► workflow-catalog.json ──► workflow-router Skill
+      ├──► workflow:sync（全量）────────────────┐
+      └──► workflow-activation.yaml ──► workflow:activate（指定入口及依赖） ──┴──► workflow-catalog.json ──► workflow-router Skill
       │
       └──► Local Workflow Runtime
                     ├── start(workflow, executionKey, input)
@@ -28,6 +29,8 @@ workflow.yaml ──► compileWorkflow() ──► 标准校验、静态图、M
 ```
 
 `compileWorkflow()` 是静态编译 Interface。Runtime 使用 `start / continue / cancel` 作为小 Interface，调用方不需要理解 YAML 解析、Transition、状态文件、Hash、Revision 和 Cycle 计数。
+
+`workflow:sync` 扫描全部 Workflow，并以全量模式覆盖 Catalog。`workflow:activate` 读取人工维护的 `harness/workflow-activation.yaml`，仅将声明的入口 Workflow 和递归前置依赖写入同一份 Catalog。Catalog 的 `entryWorkflows` 是 Router 的唯一候选范围；其余保留项只用于解析依赖。
 
 Mermaid 和 SVG Renderer 使用同一个 `FlatGraph`。SVG 使用 Dagre 在本地完成布局，不依赖浏览器或远程渲染服务。
 

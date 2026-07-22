@@ -4,7 +4,13 @@ import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { buildWorkflowCatalog, syncWorkflowCatalog } from "../src/workflow/catalog.js";
+import {
+  activateWorkflowCatalog,
+  buildWorkflowCatalog,
+  checkWorkflowCatalog,
+  syncWorkflowCatalog,
+} from "../src/workflow/catalog.js";
+import { compileWorkflow } from "../src/workflow/compiler.js";
 
 async function writeWorkflow(
   rootDir: string,
@@ -15,6 +21,7 @@ async function writeWorkflow(
     aliases?: string[];
     when?: string[];
     notWhen?: string[];
+    prerequisites?: string[];
   },
 ): Promise<void> {
   const workflowDirectory = join(rootDir, "harness/workflows", directory);
@@ -36,6 +43,7 @@ async function writeWorkflow(
         aliases: ${JSON.stringify(options.aliases ?? [])}
         when: ${JSON.stringify(options.when ?? [])}
         notWhen: ${JSON.stringify(options.notWhen ?? [])}
+      prerequisites: ${JSON.stringify(options.prerequisites ?? [])}
 do:
   - run-example:
       call: run-example
@@ -44,7 +52,103 @@ do:
   );
 }
 
+async function writeActivation(
+  rootDir: string,
+  entryWorkflowPaths: readonly string[],
+): Promise<void> {
+  await writeFile(
+    join(rootDir, "harness/workflow-activation.yaml"),
+    `version: 1
+entryWorkflowPaths:\n${entryWorkflowPaths.map((path) => `  - ${path}`).join("\n")}\n`,
+  );
+}
+
 describe("syncWorkflowCatalog", () => {
+  test("Node.js TypeScript 开发 Workflow 声明单节点标准 Workflow 为前置依赖", async () => {
+    const rootDir = resolve(import.meta.dirname, "..");
+    const development = await compileWorkflow({
+      rootDir,
+      workflowPath: join(rootDir, "harness/workflows/node-typescript-development/workflow.yaml"),
+    });
+    const standards = await compileWorkflow({
+      rootDir,
+      workflowPath: join(rootDir, "harness/workflows/node-typescript-standards/workflow.yaml"),
+    });
+    const catalog = await buildWorkflowCatalog(rootDir);
+    const developmentEntry = catalog.workflows.find(
+      (entry) => entry.name === "node-typescript-development",
+    );
+
+    expect(development.ok).toBe(true);
+    expect(development.workflow?.do[0]).toMatchObject({
+      "analyze-change": { call: "analyze-node-change" },
+    });
+    expect(standards.ok).toBe(true);
+    expect(standards.workflow?.do).toHaveLength(1);
+    expect(standards.workflow?.do[0]).toMatchObject({
+      "load-node-typescript-standards": {
+        call: "load-node-typescript-standards",
+        then: "end",
+      },
+    });
+    expect(developmentEntry?.prerequisites).toEqual(["node-typescript-standards"]);
+    const standardGuide = await readFile(
+      join(rootDir, "harness/workflows/node-typescript-standards/STANDARDS.md"),
+      "utf8",
+    );
+    expect(standardGuide).toContain("maxFunctionLines: 80");
+    const standardNode = await readFile(
+      join(rootDir, "skills/load-node-typescript-standards/SKILL.md"),
+      "utf8",
+    );
+    expect(standardNode).toContain("STANDARDS.md");
+    const qualityGate = await readFile(
+      join(rootDir, "harness/checks/node-quality-gate/CHECK.md"),
+      "utf8",
+    );
+    expect(qualityGate).toContain("args: [dist/cli.js, node-policy-check, --changed]");
+  });
+
+  test("拒绝不存在的前置 Workflow", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "harness-catalog-"));
+    await writeWorkflow(rootDir, "feature", {
+      name: "feature-workflow",
+      title: "功能流程",
+      prerequisites: ["missing-workflow"],
+    });
+
+    await expect(buildWorkflowCatalog(rootDir)).rejects.toThrow(
+      "Workflow 'feature-workflow' 引用了不存在的前置 Workflow：missing-workflow",
+    );
+  });
+
+  test("拒绝循环前置 Workflow", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "harness-catalog-"));
+    await writeWorkflow(rootDir, "first", {
+      name: "first-workflow",
+      title: "第一流程",
+      prerequisites: ["second-workflow"],
+    });
+    await writeWorkflow(rootDir, "second", {
+      name: "second-workflow",
+      title: "第二流程",
+      prerequisites: ["first-workflow"],
+    });
+
+    await expect(buildWorkflowCatalog(rootDir)).rejects.toThrow(
+      "Workflow 前置依赖存在循环：first-workflow -> second-workflow -> first-workflow",
+    );
+  });
+
+  test("标准 Workflow 的规范正文可被质量门禁定位", async () => {
+    const rootDir = resolve(import.meta.dirname, "..");
+    const standards = await readFile(
+      join(rootDir, "skills/load-node-typescript-standards/SKILL.md"),
+      "utf8",
+    );
+    expect(standards).toContain("harness/workflows/node-typescript-standards/STANDARDS.md");
+  });
+
   test("真实 Catalog 包含项目配置 Workflow 的清晰路由边界", async () => {
     const rootDir = resolve(import.meta.dirname, "..");
 
@@ -99,6 +203,50 @@ describe("syncWorkflowCatalog", () => {
       },
     });
     expect(result.catalog.workflows[0]?.sourceHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(persisted).toEqual(result.catalog);
+  });
+
+  test("全量同步将全部 Workflow 标记为入口", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "harness-catalog-"));
+    await writeWorkflow(rootDir, "first", { name: "first-workflow", title: "第一流程" });
+    await writeWorkflow(rootDir, "second", { name: "second-workflow", title: "第二流程" });
+
+    const result = await syncWorkflowCatalog({ rootDir });
+
+    expect(result.catalog).toMatchObject({
+      mode: "all",
+      entryWorkflows: ["first-workflow", "second-workflow"],
+    });
+    await expect(checkWorkflowCatalog({ rootDir })).resolves.toMatchObject({ changed: false });
+  });
+
+  test("激活声明只生成入口 Workflow 及其递归前置依赖", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "harness-catalog-"));
+    await writeWorkflow(rootDir, "standards", {
+      name: "standards-workflow",
+      title: "开发规范",
+    });
+    await writeWorkflow(rootDir, "development", {
+      name: "development-workflow",
+      title: "业务开发",
+      prerequisites: ["standards-workflow"],
+    });
+    await writeWorkflow(rootDir, "unused", { name: "unused-workflow", title: "未启用流程" });
+    await writeActivation(rootDir, ["harness/workflows/development/workflow.yaml"]);
+
+    const result = await activateWorkflowCatalog({ rootDir });
+    const persisted = JSON.parse(
+      await readFile(join(rootDir, "harness/generated/workflow-catalog.json"), "utf8"),
+    ) as { mode: string; entryWorkflows: string[]; workflows: Array<{ name: string }> };
+
+    expect(result.catalog).toMatchObject({
+      mode: "selected",
+      entryWorkflows: ["development-workflow"],
+    });
+    expect(result.catalog.workflows.map((workflow) => workflow.name)).toEqual([
+      "development-workflow",
+      "standards-workflow",
+    ]);
     expect(persisted).toEqual(result.catalog);
   });
 

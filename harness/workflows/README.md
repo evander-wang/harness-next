@@ -30,11 +30,11 @@ metadata:
       maxStepAttempts: 3
 ```
 
-新增或修改 Workflow 后执行 `npm run workflow:sync`。Catalog 只用于路由，禁止手工编辑。
+`harness/workflow-activation.yaml` 由人维护当前 Router 的入口 Workflow 路径。新增或修改已激活的 Workflow 后执行 `npm run workflow:activate`；它会把入口及其前置依赖写入 Catalog。`npm run workflow:sync` 仅用于由全部 Workflow 覆盖生成全量 Catalog。Catalog 只用于路由，禁止手工编辑。
 
 参考：
 
-- `feature-development/workflow.yaml`：最小通用流程；
+- `node-typescript-standards/workflow.yaml`：Node.js TypeScript 开发的单节点前置规范加载流程；
 - `node-typescript-development/workflow.yaml`：已有工程中的业务代码变更；
 - `node-project-configuration/workflow.yaml`：初始化或规范化当前 Node.js TypeScript 项目。
 
